@@ -1,1 +1,97 @@
-# gift-house
+# Gift House
+
+Gift House is an Android application built with Kotlin and Jetpack Compose. Its
+initial backend migration establishes private, default-deny ledger and inventory
+primitives for Supabase; it does not expose customer or business tables through
+the Supabase API.
+
+## Build
+
+Requirements: JDK 17 or newer, Android SDK Platform 37, and the Android SDK
+Build Tools installed through Android Studio or `sdkmanager`.
+
+The Android client uses only a Supabase HTTPS URL and a public `sb_publishable_`
+key. Supply them through `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` in the
+build environment, or as local Gradle properties `supabaseUrl` and
+`supabasePublishableKey`; do not commit local credentials. A publishable key is
+intended to be embedded in the APK and is not an authorization boundary—RLS
+remains mandatory. The client rejects non-HTTPS URLs and non-publishable keys,
+and must never receive a `service_role` or `sb_secret_` key.
+
+```sh
+SUPABASE_URL=https://<project-ref>.supabase.co \
+SUPABASE_PUBLISHABLE_KEY=<sb_publishable_key> \
+./gradlew check assembleDebug lint
+```
+
+The Gradle wrapper is pinned to Gradle 9.9.1 and verifies the distribution
+SHA-256 before use. Android Gradle Plugin, Kotlin Compose compiler, and AndroidX
+dependencies are pinned in `gradle/libs.versions.toml`.
+
+## Database foundations
+
+The migrations target a Supabase PostgreSQL project with its standard `anon`,
+`authenticated`, and `service_role` roles. Financial ledger and inventory
+tables live in `private`, which is intentionally excluded from PostgREST's
+exposed schemas. Those tables have forced RLS, no client-facing policies, and
+revoked direct table and sequence grants.
+
+The public identity schema creates customer profiles and application roles.
+Customers can read their own role and edit their profile, but only a trusted
+operator can assign elevated roles. The catalog schema allows guest reads of
+active categories and published products while restricting category changes to
+super admins and product/variant changes to admins. These API-facing tables
+have forced RLS and explicit grants; supplier, order, and payment data are not
+part of this catalog.
+
+The Android app uses Supabase Auth email/password and Google/Facebook OAuth,
+with PKCE and an Android Keystore-backed AES-GCM session and verifier store.
+Register `baytelhidaya://auth-callback` in Supabase Auth's redirect allow-list,
+and configure the Google and Facebook OAuth providers and their provider
+credentials in the Supabase dashboard. For mandatory email signup verification
+by code, enable email confirmations and configure the confirmation email template
+to include `{{ .Token }}`; the client verifies and can resend the signup code.
+The catalog repository selects only
+active categories, published products, and active variants so anonymous
+browsing remains governed by the catalog RLS policies. Provider availability
+and remote credentials are environment configuration and are not asserted by
+the local build.
+
+This is the initial Android Auth/catalog integration, not a phase-acceptance or
+production-readiness claim. Acceptance still requires a successful Android
+build and tests, verification of the deployed Auth provider/redirect settings
+and RLS behavior, and completion of the separately specified SQLCipher, private
+media delivery, and remaining navigation/customer workflows.
+
+The reconciliation migration removes only the audited, empty legacy profile,
+cart, address, catalog, and enum objects. It refuses to proceed if those tables
+have unexpected columns, contain rows, or have foreign-key dependents outside
+the known legacy relationships. The catalog and commerce migrations then apply
+after reconciliation.
+
+The commerce migration adds customer-readable order history with immutable
+order/item snapshots, separate order/payment/sourcing states, prepaid-only
+payment methods, private payment-event and outbox records, idempotency and
+refund-approval tables, append-only loyalty and referral records, private
+supplier intake, historical inventory snapshots, contract confirmations, and
+shipping regions. Private operational records remain inaccessible to API
+roles; privileged transaction workflows still require reviewed server-side
+functions and provider integrations.
+
+The schemas are a database foundation, not a complete commerce backend. The
+migrations do not provision Supabase, create production credentials, establish
+provider integrations, or enable service features in a hosted project. Apply
+them only after reviewing the target project's remote migration history and
+schema; do not use a destructive reset on a database with unverified contents.
+
+Apply and test with the Supabase CLI and Docker installed:
+
+```sh
+supabase start
+supabase db reset
+supabase test db
+```
+
+Never put a Supabase `service_role` key, database password, or provider secret
+in the Android project or APK. Use a protected backend environment for
+privileged operations.

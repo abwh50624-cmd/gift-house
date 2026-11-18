@@ -1,0 +1,35 @@
+<resources>
+    <string name="app_name">بيت الهدايا</string>
+    <string name="store_title">المتجر</string>
+    <string name="store_loading">جارٍ تحميل المنتجات</string>
+    <string name="store_load_error">تعذر تحميل المتجر. تحقق من اتصالك وحاول مرة أخرى.</string>
+    <string name="store_categories">الأقسام</string>
+    <string name="store_all_categories">الكل</string>
+    <string name="store_empty">لا توجد منتجات متاحة في هذا القسم حالياً.</string>
+    <string name="store_weight_grams">%1$d جم</string>
+    <string name="retry">إعادة المحاولة</string>
+    <string name="account_title">حسابي</string>
+    <string name="account_signed_in_as">تم تسجيل الدخول باسم %1$s</string>
+    <string name="account_sign_out">تسجيل الخروج</string>
+    <string name="account_initializing">جارٍ التحقق من الجلسة</string>
+    <string name="auth_sign_in">تسجيل الدخول</string>
+    <string name="auth_create_account">إنشاء حساب</string>
+    <string name="auth_email">البريد الإلكتروني</string>
+    <string name="auth_password">كلمة المرور</string>
+    <string name="auth_have_account">لديك حساب بالفعل؟ تسجيل الدخول</string>
+    <string name="auth_need_account">ليس لديك حساب؟ إنشاء حساب</string>
+    <string name="auth_google">المتابعة باستخدام Google</string>
+    <string name="auth_facebook">المتابعة باستخدام Facebook</string>
+    <string name="auth_error">تعذر إكمال المصادقة. تحقق من بيانات الدخول وإعدادات مزود المصادقة ثم حاول مجدداً.</string>
+    <string name="auth_signup_submitted">تم إرسال طلب إنشاء الحساب. أدخل رمز التحقق المرسل إلى بريدك الإلكتروني.</string>
+    <string name="auth_enter_code_for">أدخل رمز التحقق المرسل إلى %1$s</string>
+    <string name="auth_verification_code">رمز التحقق</string>
+    <string name="auth_verify_code">تأكيد البريد الإلكتروني</string>
+    <string name="auth_resend_code">إعادة إرسال الرمز</string>
+    <string name="auth_cancel_verification">العودة لتسجيل الدخول</string>
+    <string name="auth_code_resent">تمت إعادة إرسال رمز التحقق.</string>
+    <string name="backend_config_missing">يلزم إعداد عنوان Supabase ومفتاح publishable عند البناء للاتصال بالخدمة.</string>
+    <string name="backend_config_invalid">إعداد Supabase غير صالح. يلزم عنوان HTTPS ومفتاح publishable عام.</string>
+    <string name="product_details">الوزن: %1$d جم\nالسعر: %2$s</string>
+    <string name="close">إغلاق</string>
+</resources>

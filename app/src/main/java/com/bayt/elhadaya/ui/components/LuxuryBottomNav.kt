@@ -5,9 +5,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material3.Icon
@@ -33,7 +33,7 @@ private data class LuxuryNavigationItem(
 private val luxuryNavigationItems = listOf(
     LuxuryNavigationItem("الرئيسية", Icons.Filled.Home),
     LuxuryNavigationItem("المتجر", Icons.Filled.ShoppingCart),
-    LuxuryNavigationItem("طلباتي", Icons.Filled.List),
+    LuxuryNavigationItem("طلباتي", Icons.AutoMirrored.Filled.List),
     LuxuryNavigationItem("المفضلة", Icons.Filled.Favorite),
     LuxuryNavigationItem("حسابي", Icons.Filled.Person),
 )

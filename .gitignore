@@ -1,0 +1,15 @@
+.gradle/
+**/build/
+local.properties
+.idea/
+*.iml
+*.apk
+*.aab
+*.jks
+*.keystore
+secrets.properties
+.env
+.env.*
+!.env.example
+supabase/.temp/
+supabase/.branches/

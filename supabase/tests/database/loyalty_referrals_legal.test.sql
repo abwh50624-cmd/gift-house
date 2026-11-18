@@ -4,7 +4,7 @@ CREATE SCHEMA IF NOT EXISTS extensions;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = extensions, pg_catalog, public;
 
-SELECT plan(30);
+SELECT plan(37);
 
 SELECT ok(
     (
@@ -122,6 +122,13 @@ SELECT is(
 );
 
 SELECT throws_ok(
+    $$ SELECT public.redeem_loyalty_points(121, 'c2000000-0000-0000-0000-000000000001') $$,
+    '23505',
+    NULL,
+    'loyalty redemption key rejects mismatched points'
+);
+
+SELECT throws_ok(
     $$ SELECT public.redeem_loyalty_points(181, 'c2000000-0000-0000-0000-000000000002') $$,
     '55000',
     'insufficient loyalty balance',
@@ -155,10 +162,23 @@ SELECT set_config(
     true
 );
 SELECT set_config(
+    'test.referrer_code',
+    (public.create_referral_code() ->> 'referral_code'),
+    true
+);
+RESET ROLE;
+
+SET LOCAL ROLE authenticated;
+SELECT set_config(
+    'request.jwt.claim.sub',
+    'c1000000-0000-0000-0000-000000000005',
+    true
+);
+SELECT set_config(
     'test.referral',
     public.register_customer_referral(
         'c1000000-0000-0000-0000-000000000005',
-        'ABC-123',
+        current_setting('test.referrer_code'),
         'c4000000-0000-0000-0000-000000000001'
     )::text,
     true
@@ -176,9 +196,22 @@ SELECT set_config(
     'c1000000-0000-0000-0000-000000000001',
     true
 );
+SELECT set_config(
+    'test.second_tier_code',
+    (public.create_referral_code() ->> 'referral_code'),
+    true
+);
+RESET ROLE;
+
+SET LOCAL ROLE authenticated;
+SELECT set_config(
+    'request.jwt.claim.sub',
+    'c1000000-0000-0000-0000-000000000004',
+    true
+);
 SELECT public.register_customer_referral(
     'c1000000-0000-0000-0000-000000000004',
-    'HIER-123',
+    current_setting('test.second_tier_code'),
     'c4000000-0000-0000-0000-000000000010'
 );
 RESET ROLE;
@@ -367,13 +400,84 @@ SELECT ok(
 SET LOCAL ROLE authenticated;
 SELECT set_config(
     'request.jwt.claim.sub',
+    'c1000000-0000-0000-0000-000000000005',
+    true
+);
+SELECT throws_ok(
+    $$ SELECT public.register_customer_referral(
+           'c1000000-0000-0000-0000-000000000005',
+           '00000000000000000000000000000000',
+           'c4000000-0000-0000-0000-000000000020'
+       ) $$,
+    '22023',
+    NULL,
+    'referral registration rejects unknown server-issued codes'
+);
+SELECT throws_ok(
+    $$ SELECT public.register_customer_referral(
+           'c1000000-0000-0000-0000-000000000001',
+           '00000000000000000000000000000000',
+           'c4000000-0000-0000-0000-000000000021'
+       ) $$,
+    '22023',
+    NULL,
+    'referral registration requires the invitee to match authenticated identity'
+);
+SELECT set_config(
+    'request.jwt.claim.sub',
     'c1000000-0000-0000-0000-000000000004',
+    true
+);
+SELECT throws_ok(
+    $$ SELECT public.record_referral_qualifying_order(
+           'c3000000-0000-0000-0000-000000000001',
+           'c4000000-0000-0000-0000-000000000022'
+       ) $$,
+    '42501',
+    NULL,
+    'third party cannot qualify another customer order'
+);
+SELECT set_config(
+    'request.jwt.claim.sub',
+    'c1000000-0000-0000-0000-000000000005',
+    true
+);
+SELECT throws_ok(
+    $$ SELECT public.register_customer_referral(
+           'c1000000-0000-0000-0000-000000000005',
+           '00000000000000000000000000000001',
+           'c4000000-0000-0000-0000-000000000001'
+       ) $$,
+    '23505',
+    NULL,
+    'referral idempotency key rejects mismatched parameters'
+);
+SELECT throws_ok(
+    $$ SELECT public.record_referral_qualifying_order(
+           'c3000000-0000-0000-0000-000000000002',
+           'c4000000-0000-0000-0000-000000000002'
+       ) $$,
+    '23505',
+    NULL,
+    'qualifying-order idempotency key rejects mismatched order parameters'
+);
+SELECT ok(
+    char_length(current_setting('test.referrer_code')) = 32
+    AND current_setting('test.referrer_code') ~ '^[0-9a-f]{32}$',
+    'server-issued referral codes are 128-bit hexadecimal values'
+);
+RESET ROLE;
+
+SET LOCAL ROLE authenticated;
+SELECT set_config(
+    'request.jwt.claim.sub',
+    'c1000000-0000-0000-0000-000000000005',
     true
 );
 SELECT ok(
     public.register_customer_referral(
         'c1000000-0000-0000-0000-000000000005',
-        'ABC-123',
+        current_setting('test.referrer_code'),
         'c4000000-0000-0000-0000-000000000001'
     ) IS NOT NULL,
     'repeat referral registration is replay-safe'

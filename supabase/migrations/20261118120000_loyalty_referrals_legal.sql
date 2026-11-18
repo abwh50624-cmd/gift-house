@@ -1,3 +1,5 @@
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
+
 ALTER TABLE private.customer_referrals
     ADD COLUMN tier_level smallint NOT NULL DEFAULT 1
         CHECK (tier_level BETWEEN 1 AND 3),
@@ -6,6 +8,30 @@ ALTER TABLE private.customer_referrals
         CHECK (reward_points >= 0),
     ADD COLUMN reward_status text NOT NULL DEFAULT 'PENDING'
         CHECK (reward_status IN ('PENDING', 'EARNED', 'EXPIRED', 'REVERSED'));
+
+CREATE TABLE private.referral_codes (
+    referral_code_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    referrer_id uuid NOT NULL REFERENCES auth.users (id) ON DELETE RESTRICT,
+    code_hash text NOT NULL UNIQUE CHECK (code_hash ~ '^[0-9a-f]{64}$'),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    expires_at timestamptz NOT NULL,
+    revoked_at timestamptz,
+    CHECK (expires_at > created_at),
+    CHECK (revoked_at IS NULL OR revoked_at >= created_at)
+);
+
+CREATE INDEX referral_codes_referrer_idx
+    ON private.referral_codes (referrer_id, created_at DESC);
+
+CREATE TABLE private.referral_rpc_idempotency (
+    operation text NOT NULL CHECK (operation IN ('register_customer_referral', 'record_referral_qualifying_order')),
+    idempotency_key text NOT NULL CHECK (char_length(idempotency_key) BETWEEN 1 AND 200),
+    actor_id uuid NOT NULL REFERENCES auth.users (id) ON DELETE RESTRICT,
+    payload_hash text NOT NULL CHECK (payload_hash ~ '^[0-9a-f]{64}$'),
+    result jsonb NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (operation, idempotency_key)
+);
 
 CREATE TABLE public.consumer_return_requests (
     return_request_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -120,6 +146,10 @@ ALTER TABLE private.loyalty_redemption_allocations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE private.loyalty_redemption_allocations FORCE ROW LEVEL SECURITY;
 ALTER TABLE private.referral_rewards ENABLE ROW LEVEL SECURITY;
 ALTER TABLE private.referral_rewards FORCE ROW LEVEL SECURITY;
+ALTER TABLE private.referral_codes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.referral_codes FORCE ROW LEVEL SECURITY;
+ALTER TABLE private.referral_rpc_idempotency ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.referral_rpc_idempotency FORCE ROW LEVEL SECURITY;
 ALTER TABLE private.legal_contract_versions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE private.legal_contract_versions FORCE ROW LEVEL SECURITY;
 
@@ -266,6 +296,10 @@ BEGIN
       AND source_type = 'loyalty_redemption'
       AND source_id = p_idempotency_key;
     IF FOUND THEN
+        IF (-1 * v_existing.points_delta) <> p_points THEN
+            RAISE EXCEPTION 'idempotency key was reused with different redemption parameters'
+                USING ERRCODE = '23505';
+        END IF;
         RETURN jsonb_build_object(
             'loyalty_entry_id', v_existing.loyalty_entry_id,
             'points_redeemed', (-1 * v_existing.points_delta),
@@ -405,6 +439,40 @@ SELECT
     true
 FROM contract_terms;
 
+CREATE FUNCTION public.create_referral_code()
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public, private, auth
+AS $$
+DECLARE
+    v_referrer_id uuid := auth.uid();
+    v_code text;
+    v_code_hash text;
+    v_now timestamptz := clock_timestamp();
+BEGIN
+    IF v_referrer_id IS NULL THEN
+        RAISE EXCEPTION 'authenticated identity is required'
+            USING ERRCODE = '28000';
+    END IF;
+
+    v_code := encode(extensions.gen_random_bytes(16), 'hex');
+    v_code_hash := encode(sha256(convert_to(v_code, 'UTF8')), 'hex');
+
+    INSERT INTO private.referral_codes (
+        referrer_id, code_hash, created_at, expires_at
+    )
+    VALUES (
+        v_referrer_id, v_code_hash, v_now, v_now + interval '30 days'
+    );
+
+    RETURN jsonb_build_object(
+        'referral_code', v_code,
+        'expires_at', v_now + interval '30 days'
+    );
+END;
+$$;
+
 CREATE FUNCTION public.register_customer_referral(
     p_invitee_id uuid,
     p_referral_code text,
@@ -416,31 +484,89 @@ SECURITY DEFINER
 SET search_path = pg_catalog, public, private, auth
 AS $$
 DECLARE
-    v_referrer_id uuid := auth.uid();
+    v_invitee_id uuid := auth.uid();
+    v_referrer_id uuid;
     v_referral private.customer_referrals%ROWTYPE;
+    v_existing_result jsonb;
+    v_payload_hash text;
+    v_code_hash text;
     v_now timestamptz := clock_timestamp();
 BEGIN
-    IF v_referrer_id IS NULL THEN
+    IF v_invitee_id IS NULL THEN
         RAISE EXCEPTION 'authenticated identity is required'
             USING ERRCODE = '28000';
     END IF;
-    IF p_invitee_id IS NULL OR p_invitee_id = v_referrer_id
-       OR p_referral_code IS NULL OR char_length(p_referral_code) NOT BETWEEN 1 AND 100
+    IF p_invitee_id IS NULL OR p_invitee_id <> v_invitee_id
+       OR p_referral_code IS NULL OR char_length(p_referral_code) <> 32
+       OR p_referral_code !~ '^[0-9a-fA-F]{32}$'
        OR p_idempotency_key IS NULL OR char_length(p_idempotency_key) NOT BETWEEN 1 AND 200
     THEN
         RAISE EXCEPTION 'invalid referral'
             USING ERRCODE = '22023';
     END IF;
 
+    v_code_hash := encode(sha256(convert_to(lower(p_referral_code), 'UTF8')), 'hex');
+    v_payload_hash := encode(
+        sha256(convert_to(
+            jsonb_build_object(
+                'invitee_id', v_invitee_id,
+                'referral_code', lower(p_referral_code)
+            )::text,
+            'UTF8'
+        )),
+        'hex'
+    );
+
+    IF EXISTS (
+        SELECT 1
+        FROM private.referral_rpc_idempotency
+        WHERE operation = 'register_customer_referral'
+          AND idempotency_key = p_idempotency_key
+          AND (actor_id <> v_invitee_id OR payload_hash <> v_payload_hash)
+    ) THEN
+        RAISE EXCEPTION 'idempotency key was reused with different referral parameters'
+            USING ERRCODE = '23505';
+    END IF;
+
+    SELECT result INTO v_existing_result
+    FROM private.referral_rpc_idempotency
+    WHERE operation = 'register_customer_referral'
+      AND idempotency_key = p_idempotency_key
+      AND actor_id = v_invitee_id;
+    IF FOUND THEN
+        IF NOT EXISTS (
+            SELECT 1
+            FROM private.referral_rpc_idempotency
+            WHERE operation = 'register_customer_referral'
+              AND idempotency_key = p_idempotency_key
+              AND actor_id = v_invitee_id
+              AND payload_hash = v_payload_hash
+        ) THEN
+            RAISE EXCEPTION 'idempotency key was reused with different referral parameters'
+                USING ERRCODE = '23505';
+        END IF;
+        RETURN v_existing_result;
+    END IF;
+
+    SELECT referrer_id INTO v_referrer_id
+    FROM private.referral_codes
+    WHERE code_hash = v_code_hash
+      AND revoked_at IS NULL
+      AND expires_at > v_now;
+    IF NOT FOUND OR v_referrer_id = v_invitee_id THEN
+        RAISE EXCEPTION 'invalid or expired referral code'
+            USING ERRCODE = '22023';
+    END IF;
+
     PERFORM pg_advisory_xact_lock(
-        hashtextextended('referral.register:' || v_referrer_id::text || ':' || p_invitee_id::text, 0)
+        hashtextextended('referral.register:' || v_invitee_id::text, 0)
     );
 
     INSERT INTO private.customer_referrals (
         referrer_id, invitee_id, referral_code, created_at, expires_at
     )
     VALUES (
-        v_referrer_id, p_invitee_id, p_referral_code,
+        v_referrer_id, v_invitee_id, lower(p_referral_code),
         v_now, v_now + interval '30 days'
     )
     ON CONFLICT (invitee_id) DO NOTHING
@@ -449,22 +575,33 @@ BEGIN
     IF NOT FOUND THEN
         SELECT * INTO v_referral
         FROM private.customer_referrals
-        WHERE invitee_id = p_invitee_id;
+        WHERE invitee_id = v_invitee_id;
         IF v_referral.referrer_id <> v_referrer_id
-           OR v_referral.referral_code <> p_referral_code
+           OR v_referral.referral_code <> lower(p_referral_code)
         THEN
             RAISE EXCEPTION 'invitee is already registered to another referrer'
                 USING ERRCODE = '23505';
         END IF;
     END IF;
 
-    RETURN jsonb_build_object(
+    v_existing_result := jsonb_build_object(
         'referral_id', v_referral.referral_id,
         'referrer_id', v_referral.referrer_id,
         'invitee_id', v_referral.invitee_id,
         'tier_level', v_referral.tier_level,
         'expires_at', v_referral.expires_at
     );
+
+    INSERT INTO private.referral_rpc_idempotency (
+        operation, idempotency_key, actor_id, payload_hash, result
+    )
+    VALUES (
+        'register_customer_referral', p_idempotency_key, v_invitee_id,
+        v_payload_hash, v_existing_result
+    )
+    ON CONFLICT (operation, idempotency_key) DO NOTHING;
+
+    RETURN v_existing_result;
 END;
 $$;
 
@@ -482,6 +619,8 @@ DECLARE
     v_order public.orders%ROWTYPE;
     v_referrer_id uuid;
     v_referral private.customer_referrals%ROWTYPE;
+    v_existing_result jsonb;
+    v_payload_hash text;
     v_tier smallint;
     v_points integer;
     v_reward_count integer := 0;
@@ -498,12 +637,61 @@ BEGIN
             USING ERRCODE = '22023';
     END IF;
 
+    v_payload_hash := encode(
+        sha256(convert_to(
+            jsonb_build_object(
+                'order_id', p_order_id,
+                'actor_id', v_actor_id
+            )::text,
+            'UTF8'
+        )),
+        'hex'
+    );
+
+    IF EXISTS (
+        SELECT 1
+        FROM private.referral_rpc_idempotency
+        WHERE operation = 'record_referral_qualifying_order'
+          AND idempotency_key = p_idempotency_key
+          AND (actor_id <> v_actor_id OR payload_hash <> v_payload_hash)
+    ) THEN
+        RAISE EXCEPTION 'idempotency key was reused with different order parameters'
+            USING ERRCODE = '23505';
+    END IF;
+
+    SELECT result INTO v_existing_result
+    FROM private.referral_rpc_idempotency
+    WHERE operation = 'record_referral_qualifying_order'
+      AND idempotency_key = p_idempotency_key
+      AND actor_id = v_actor_id;
+    IF FOUND THEN
+        IF NOT EXISTS (
+            SELECT 1
+            FROM private.referral_rpc_idempotency
+            WHERE operation = 'record_referral_qualifying_order'
+              AND idempotency_key = p_idempotency_key
+              AND actor_id = v_actor_id
+              AND payload_hash = v_payload_hash
+        ) THEN
+            RAISE EXCEPTION 'idempotency key was reused with different order parameters'
+                USING ERRCODE = '23505';
+        END IF;
+        RETURN v_existing_result;
+    END IF;
+
     SELECT * INTO v_order
     FROM public.orders
     WHERE order_id = p_order_id
-      AND payment_status = 'SUCCEEDED'
     FOR UPDATE;
     IF NOT FOUND THEN
+        RAISE EXCEPTION 'order not found'
+            USING ERRCODE = 'P0002';
+    END IF;
+    IF v_order.customer_id <> v_actor_id THEN
+        RAISE EXCEPTION 'order customer identity does not match authenticated identity'
+            USING ERRCODE = '42501';
+    END IF;
+    IF v_order.payment_status <> 'SUCCEEDED' THEN
         RAISE EXCEPTION 'only successfully paid orders qualify referrals'
             USING ERRCODE = '55000';
     END IF;
@@ -558,10 +746,21 @@ BEGIN
     WHERE referral.invitee_id = v_order.customer_id
       AND referral.first_successful_order_id IS NULL;
 
-    RETURN jsonb_build_object(
+    v_existing_result := jsonb_build_object(
         'order_id', p_order_id,
         'rewards_created', v_reward_count
     );
+
+    INSERT INTO private.referral_rpc_idempotency (
+        operation, idempotency_key, actor_id, payload_hash, result
+    )
+    VALUES (
+        'record_referral_qualifying_order', p_idempotency_key, v_actor_id,
+        v_payload_hash, v_existing_result
+    )
+    ON CONFLICT (operation, idempotency_key) DO NOTHING;
+
+    RETURN v_existing_result;
 END;
 $$;
 
@@ -910,6 +1109,7 @@ REVOKE ALL ON FUNCTION public.get_loyalty_balance() FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.grant_loyalty_points(uuid,integer,text,text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.redeem_loyalty_points(integer,text) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.expire_loyalty_points(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.create_referral_code() FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.register_customer_referral(uuid,text,text) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.record_referral_qualifying_order(uuid,text) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.confirm_legal_acceptance(text,text,text,uuid,text) FROM PUBLIC, anon;
@@ -919,6 +1119,7 @@ REVOKE ALL ON FUNCTION public.complete_sandbox_consumer_return(uuid,text) FROM P
 
 GRANT EXECUTE ON FUNCTION public.get_loyalty_balance() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.redeem_loyalty_points(integer,text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.create_referral_code() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.register_customer_referral(uuid,text,text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.record_referral_qualifying_order(uuid,text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.confirm_legal_acceptance(text,text,text,uuid,text) TO authenticated;

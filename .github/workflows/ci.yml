@@ -66,6 +66,9 @@ jobs:
       - name: Test sandbox shipping adapter
         run: node --experimental-strip-types --test supabase/functions/_shared/shipping-provider_test.ts
 
+      - name: Test sandbox AI concierge adapter
+        run: node --experimental-strip-types --test supabase/functions/_shared/ai-concierge_test.ts
+
   secrets:
     runs-on: ubuntu-latest
     steps:

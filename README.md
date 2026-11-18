@@ -145,6 +145,15 @@ no network requests, returns no real tracking number, and must not be used to
 dispatch parcels. Address collection, provider credentials, signed live
 callbacks, and label generation remain future work.
 
+The phase 10 foundation adds customer-facing support threads and append-only
+messages with strict RLS, an AI request audit trail, and sandbox-only AI reply
+ingestion. Customers may open and read only their own threads; admins may read
+and answer the support queue. Opening threads and posting messages are
+idempotent RPC operations, complaint threads are prioritized, and the AI
+adapter cannot read Supabase or execute financial or inventory operations.
+Live Gemini credentials and direct database access remain intentionally
+unconfigured.
+
 Apply and test with the Supabase CLI and Docker installed:
 
 ```sh
@@ -154,6 +163,7 @@ supabase test db
 deno test supabase/functions/_shared/payment-provider_test.ts
 node --experimental-strip-types --test cloudflare/supplier-telegram/index_test.ts
 node --experimental-strip-types --test supabase/functions/_shared/shipping-provider_test.ts
+node --experimental-strip-types --test supabase/functions/_shared/ai-concierge_test.ts
 ```
 
 Never put a Supabase `service_role` key, database password, or provider secret

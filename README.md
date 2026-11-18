@@ -115,6 +115,26 @@ shipping provider is configured. The shipping adapter contract is defined
 separately; checkout currently uses the server-managed `shipping_regions`
 rates. The sandbox must not be used to collect real payments.
 
+The phase 8 foundation adds a Cloudflare Worker webhook for Telegram supplier
+availability updates, super-admin-managed catalog-code mappings, append-only
+48-hour availability reports, and a sourcing planner for paid orders in a
+maximum 48-hour window. The planner allocates available quantities in
+lowest-reported supplier-cost order and records unresolved shortages for
+review; it does not claim to optimize shipping cost because provider quotes
+are not configured. A complete plan requires approval by a different super
+admin before order sourcing state advances or supplier instructions enter the
+outbox. Supplier reports use `/available ITEM-CODE QUANTITY COST_MINOR`, with
+zero quantity and zero cost denoting a shortage.
+
+Deploy `cloudflare/supplier-telegram` with Wrangler and set
+`TELEGRAM_WEBHOOK_SECRET`, `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY` as
+Worker secrets. Register the Worker URL with Telegram's `setWebhook` using
+the same secret token and the `/telegram` route. The Worker accepts text
+availability reports only;
+media downloads, image conversion, R2 storage, outbound Telegram delivery,
+and live supplier integrations remain unconfigured. Never put Worker secrets
+in Wrangler vars, source control, or the Android application.
+
 Apply and test with the Supabase CLI and Docker installed:
 
 ```sh
@@ -122,6 +142,7 @@ supabase start
 supabase db reset
 supabase test db
 deno test supabase/functions/_shared/payment-provider_test.ts
+node --experimental-strip-types --test cloudflare/supplier-telegram/index_test.ts
 ```
 
 Never put a Supabase `service_role` key, database password, or provider secret

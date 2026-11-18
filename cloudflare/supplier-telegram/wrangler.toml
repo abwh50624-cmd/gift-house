@@ -1,0 +1,4 @@
+name = "gift-house-supplier-telegram"
+main = "index.ts"
+compatibility_date = "2026-11-18"
+workers_dev = false

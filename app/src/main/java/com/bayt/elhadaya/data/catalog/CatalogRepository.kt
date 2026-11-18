@@ -2,7 +2,9 @@ package com.bayt.elhadaya.data.catalog
 
 import com.bayt.elhadaya.ui.store.StoreCategory
 import com.bayt.elhadaya.ui.store.StoreProduct
+import com.bayt.elhadaya.ui.store.StoreProductDetails
 import com.bayt.elhadaya.ui.store.StoreUiState
+import com.bayt.elhadaya.ui.store.StoreVariant
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.query.Columns
@@ -49,6 +51,59 @@ class CatalogRepository(private val client: SupabaseClient) {
 
         return mapCatalog(categories, products, variants)
     }
+
+    suspend fun loadProductDetails(productId: String): StoreProductDetails? {
+        val product = client.from("products")
+            .select(
+                Columns.list(
+                    "product_id",
+                    "category_id",
+                    "name",
+                    "description",
+                ),
+            ) {
+                filter {
+                    eq("product_id", productId)
+                    eq("status", "PUBLISHED")
+                }
+            }
+            .decodeList<ProductRow>()
+            .singleOrNull()
+            ?: return null
+
+        val variants = client.from("product_variants")
+            .select(
+                Columns.list(
+                    "variant_id",
+                    "variant_name",
+                    "weight_grams",
+                    "price_minor",
+                ),
+            ) {
+                filter {
+                    eq("product_id", product.productId)
+                    eq("is_active", true)
+                }
+                order("display_order", Order.ASCENDING)
+            }
+            .decodeList<ProductDetailVariantRow>()
+
+        if (variants.isEmpty()) return null
+        return StoreProductDetails(
+            id = product.productId,
+            categoryId = product.categoryId,
+            name = product.name,
+            description = product.description,
+            variants = variants.map {
+                StoreVariant(
+                    id = it.variantId,
+                    name = it.variantName,
+                    weightGrams = it.weightGrams,
+                    priceMinor = it.priceMinor,
+                )
+            },
+        )
+    }
 }
 
 internal fun mapCatalog(
@@ -59,19 +114,19 @@ internal fun mapCatalog(
     val categoryById = categories.associateBy(CategoryRow::categoryId)
     val productById = products.associateBy(ProductRow::productId)
     val storeCategories = categories.map { StoreCategory(it.categoryId, it.name) }
-    val storeProducts = variants.map { variant ->
-        val product = requireNotNull(productById[variant.productId]) {
+    val storeProducts = variants.groupBy(VariantRow::productId).map { (productId, productVariants) ->
+        val product = requireNotNull(productById[productId]) {
             "Catalog returned a variant without its visible product."
         }
         requireNotNull(categoryById[product.categoryId]) {
             "Catalog returned a product without its visible category."
         }
         StoreProduct(
-            id = variant.variantId,
+            id = product.productId,
             categoryId = product.categoryId,
-            name = "${product.name} - ${variant.variantName}",
-            priceMinor = variant.priceMinor,
-            weightGrams = variant.weightGrams,
+            name = product.name,
+            priceMinor = productVariants.minOf(VariantRow::priceMinor),
+            variantCount = productVariants.size,
         )
     }
     return StoreUiState.Content(storeCategories, storeProducts)
@@ -81,6 +136,7 @@ internal fun mapCatalog(
 internal data class CategoryRow(
     @SerialName("category_id") val categoryId: String,
     val name: String,
+    val description: String? = null,
 )
 
 @Serializable
@@ -88,12 +144,21 @@ internal data class ProductRow(
     @SerialName("product_id") val productId: String,
     @SerialName("category_id") val categoryId: String,
     val name: String,
+    val description: String? = null,
 )
 
 @Serializable
 internal data class VariantRow(
     @SerialName("variant_id") val variantId: String,
     @SerialName("product_id") val productId: String,
+    @SerialName("variant_name") val variantName: String,
+    @SerialName("weight_grams") val weightGrams: Int,
+    @SerialName("price_minor") val priceMinor: Long,
+)
+
+@Serializable
+internal data class ProductDetailVariantRow(
+    @SerialName("variant_id") val variantId: String,
     @SerialName("variant_name") val variantName: String,
     @SerialName("weight_grams") val weightGrams: Int,
     @SerialName("price_minor") val priceMinor: Long,

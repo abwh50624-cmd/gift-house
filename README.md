@@ -57,11 +57,12 @@ browsing remains governed by the catalog RLS policies. Provider availability
 and remote credentials are environment configuration and are not asserted by
 the local build.
 
-This is the initial Android Auth/catalog integration, not a phase-acceptance or
-production-readiness claim. Acceptance still requires a successful Android
-build and tests, verification of the deployed Auth provider/redirect settings
-and RLS behavior, and completion of the separately specified SQLCipher, private
-media delivery, and remaining navigation/customer workflows.
+The Android client also includes product details, a local cart, shipping-region
+and prepaid-method selection, and a call to the server checkout RPC. These are
+initial implementations, not phase-acceptance or production-readiness claims:
+they still require successful Android and database tests, deployed Auth/RLS
+verification, durable cart storage, and the remaining navigation/customer
+workflows.
 
 The reconciliation migration removes only the audited, empty legacy profile,
 cart, address, catalog, and enum objects. It refuses to proceed if those tables
@@ -78,11 +79,17 @@ shipping regions. Private operational records remain inaccessible to API
 roles; privileged transaction workflows still require reviewed server-side
 functions and provider integrations.
 
-The schemas are a database foundation, not a complete commerce backend. The
-migrations do not provision Supabase, create production credentials, establish
-provider integrations, or enable service features in a hosted project. Apply
-them only after reviewing the target project's remote migration history and
-schema; do not use a destructive reset on a database with unverified contents.
+The checkout migration adds an authenticated, idempotent RPC that rechecks
+catalog prices and shipping, atomically reserves inventory for 15 minutes,
+records prepaid-only orders with immutable JSON snapshots and SHA-256 digests,
+and queues a payment-request event. It does not integrate a payment provider.
+Orders remain `PAYMENT_PENDING` until a trusted provider webhook confirms
+payment. The reservation-expiry function is restricted to `service_role` and
+still needs a scheduled trusted worker. The migrations do not provision
+Supabase, create production credentials, establish provider integrations, or
+enable service features in a hosted project. Apply them only after reviewing
+the target project's remote migration history and schema; do not use a
+destructive reset on a database with unverified contents.
 
 Apply and test with the Supabase CLI and Docker installed:
 

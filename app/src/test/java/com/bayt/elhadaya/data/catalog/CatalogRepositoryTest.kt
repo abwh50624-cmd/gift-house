@@ -6,7 +6,7 @@ import org.junit.Test
 
 class CatalogRepositoryTest {
     @Test
-    fun mapCatalogBuildsCardsFromReturnedProductsAndVariants() {
+    fun mapCatalogGroupsVariantsUnderProductsAndUsesLowestPrice() {
         val result = mapCatalog(
             categories = listOf(CategoryRow("category-1", "هدايا")),
             products = listOf(ProductRow("product-1", "category-1", "صندوق")),
@@ -15,10 +15,10 @@ class CatalogRepositoryTest {
 
         assertEquals(listOf("category-1"), result.categories.map { it.id })
         assertEquals(1, result.products.size)
-        assertEquals("صندوق - كبير", result.products.single().name)
-        assertEquals("variant-1", result.products.single().id)
+        assertEquals("صندوق", result.products.single().name)
+        assertEquals("product-1", result.products.single().id)
         assertEquals(12500L, result.products.single().priceMinor)
-        assertEquals(500, result.products.single().weightGrams)
+        assertEquals(1, result.products.single().variantCount)
     }
 
     @Test

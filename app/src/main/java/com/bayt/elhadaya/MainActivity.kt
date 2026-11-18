@@ -9,14 +9,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -29,12 +27,21 @@ import com.bayt.elhadaya.data.auth.AuthRepository
 import com.bayt.elhadaya.data.auth.BackendConfiguration
 import com.bayt.elhadaya.data.auth.SupabaseBackend
 import com.bayt.elhadaya.data.catalog.CatalogRepository
+import com.bayt.elhadaya.data.checkout.CartLine
+import com.bayt.elhadaya.data.checkout.CheckoutReceipt
+import com.bayt.elhadaya.data.checkout.CheckoutRepository
+import com.bayt.elhadaya.data.checkout.CheckoutTerms
+import com.bayt.elhadaya.data.checkout.PrepaidPaymentMethod
+import com.bayt.elhadaya.data.checkout.ShippingRegion
 import com.bayt.elhadaya.ui.auth.AuthScreen
+import com.bayt.elhadaya.ui.checkout.CartScreen
 import com.bayt.elhadaya.ui.components.LuxuryBottomNav
 import com.bayt.elhadaya.ui.components.LuxuryTheme
 import com.bayt.elhadaya.ui.components.LuxuryTopBar
+import com.bayt.elhadaya.ui.store.ProductDetailsScreen
 import com.bayt.elhadaya.ui.store.StoreScreen
-import com.bayt.elhadaya.ui.store.StoreProduct
+import com.bayt.elhadaya.ui.store.StoreProductDetails
+import com.bayt.elhadaya.ui.store.StoreVariant
 import com.bayt.elhadaya.ui.store.StoreUiState
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
@@ -46,23 +53,41 @@ import io.ktor.client.plugins.HttpRequestTimeoutException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.serialization.SerializationException
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import java.io.IOException
-import java.math.BigDecimal
 import java.security.GeneralSecurityException
-import java.text.NumberFormat
-import java.util.Currency
-import java.util.Locale
+import java.util.UUID
 
 class MainActivity : ComponentActivity() {
     private lateinit var backendConfiguration: BackendConfiguration
     private var supabaseClient: SupabaseClient? = null
     private var authRepository: AuthRepository? = null
     private var catalogRepository: CatalogRepository? = null
+    private var checkoutRepository: CheckoutRepository? = null
 
     private var storeState by mutableStateOf<StoreUiState>(StoreUiState.Loading)
     private var selectedNavigationItem by mutableStateOf("المتجر")
     private var selectedCategoryId by mutableStateOf<String?>(null)
-    private var selectedProduct by mutableStateOf<StoreProduct?>(null)
+    private var selectedProductId by mutableStateOf<String?>(null)
+    private var productDetails by mutableStateOf<StoreProductDetails?>(null)
+    private var productDetailsLoading by mutableStateOf(false)
+    private var productDetailsError by mutableStateOf<String?>(null)
+    private var cartLines by mutableStateOf<List<CartLine>>(emptyList())
+    private var checkoutTerms by mutableStateOf<CheckoutTerms?>(null)
+    private var shippingRegions by mutableStateOf<List<ShippingRegion>>(emptyList())
+    private var selectedShippingRegionId by mutableStateOf<String?>(null)
+    private var selectedPaymentMethod by mutableStateOf(PrepaidPaymentMethod.CARD)
+    private var checkoutTermsAccepted by mutableStateOf(false)
+    private var checkoutOptionsLoading by mutableStateOf(false)
+    private var checkoutSubmitting by mutableStateOf(false)
+    private var checkoutOptionsError by mutableStateOf<String?>(null)
+    private var checkoutError by mutableStateOf<String?>(null)
+    private var checkoutReceipt by mutableStateOf<CheckoutReceipt?>(null)
+    private var checkoutIdempotencyKey: String? = null
+    private var checkoutKeyTermsVersion: String? = null
+    private var checkoutKeyTermsSha256: String? = null
     private var sessionInitializing by mutableStateOf(true)
     private var isAuthenticated by mutableStateOf(false)
     private var accountEmail by mutableStateOf<String?>(null)
@@ -73,14 +98,17 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        restoreCheckoutState(savedInstanceState)
         backendConfiguration = SupabaseBackend.configure(this)
         (backendConfiguration as? BackendConfiguration.Ready)?.let { backend ->
             supabaseClient = backend.client
             authRepository = AuthRepository(backend.client)
             catalogRepository = CatalogRepository(backend.client)
+            checkoutRepository = CheckoutRepository(backend.client)
             handleDeepLink(backend.client, intent)
             observeSession(backend.client)
             loadCatalog()
+            loadCheckoutOptions()
         } ?: run {
             storeState = StoreUiState.Error(configurationMessage())
         }
@@ -106,6 +134,41 @@ class MainActivity : ComponentActivity() {
                         onSignOut = { runAuthAction { requireAuthRepository().signOut() } },
                         onNavigationItemSelected = ::selectNavigationItem,
                     )
+                } else if (selectedNavigationItem == "السلة") {
+                    CartScreen(
+                        items = cartLines,
+                        regions = shippingRegions,
+                        terms = checkoutTerms,
+                        selectedRegionId = selectedShippingRegionId,
+                        paymentMethod = selectedPaymentMethod,
+                        termsAccepted = checkoutTermsAccepted,
+                        isAuthenticated = isAuthenticated,
+                        isLoadingOptions = checkoutOptionsLoading,
+                        isSubmitting = checkoutSubmitting,
+                        optionsError = checkoutOptionsError,
+                        checkoutError = checkoutError,
+                        receipt = checkoutReceipt,
+                        selectedNavigationItem = selectedNavigationItem,
+                        onQuantityChanged = ::updateCartQuantity,
+                        onRegionSelected = ::selectShippingRegion,
+                        onPaymentMethodSelected = ::selectPaymentMethod,
+                        onTermsAccepted = { checkoutTermsAccepted = it },
+                        onRetryOptions = ::loadCheckoutOptions,
+                        onCheckout = ::submitCheckout,
+                        onSignIn = { selectNavigationItem("حسابي") },
+                        onNavigationItemSelected = ::selectNavigationItem,
+                    )
+                } else if (selectedProductId != null) {
+                    ProductDetailsScreen(
+                        details = productDetails,
+                        loading = productDetailsLoading,
+                        errorMessage = productDetailsError,
+                        selectedNavigationItem = selectedNavigationItem,
+                        onBack = { selectedProductId = null },
+                        onRetry = { loadProductDetails(requireNotNull(selectedProductId)) },
+                        onAddToCart = ::addToCart,
+                        onNavigationItemSelected = ::selectNavigationItem,
+                    )
                 } else {
                     StoreScreen(
                         state = storeState,
@@ -113,22 +176,25 @@ class MainActivity : ComponentActivity() {
                         selectedNavigationItem = selectedNavigationItem,
                         onCategorySelected = { selectedCategoryId = it },
                         onProductSelected = { productId ->
-                            selectedProduct = (storeState as? StoreUiState.Content)
-                                ?.products
-                                ?.firstOrNull { it.id == productId }
+                            selectedProductId = productId
+                            loadProductDetails(productId)
                         },
                         onNavigationItemSelected = ::selectNavigationItem,
                         onRetry = ::loadCatalog,
                     )
-                    selectedProduct?.let { product ->
-                        ProductDetailsDialog(
-                            product = product,
-                            onDismiss = { selectedProduct = null },
-                        )
-                    }
                 }
             }
         }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString(STATE_CART_LINES, Json.encodeToString(cartLines))
+        outState.putString(STATE_CHECKOUT_IDEMPOTENCY_KEY, checkoutIdempotencyKey)
+        outState.putString(STATE_CHECKOUT_TERMS_VERSION, checkoutKeyTermsVersion)
+        outState.putString(STATE_CHECKOUT_TERMS_SHA256, checkoutKeyTermsSha256)
+        outState.putString(STATE_SHIPPING_REGION_ID, selectedShippingRegionId)
+        outState.putString(STATE_PAYMENT_METHOD, selectedPaymentMethod.apiValue)
+        super.onSaveInstanceState(outState)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -285,10 +351,236 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun selectNavigationItem(item: String) {
-        if (item == "المتجر" || item == "حسابي") {
+        if (item in setOf("المتجر", "حسابي", "السلة")) {
             selectedNavigationItem = item
-            if (item == "حسابي") selectedProduct = null
+            if (item != "المتجر") selectedProductId = null
         }
+    }
+
+    private fun loadProductDetails(productId: String) {
+        val repository = catalogRepository
+        if (repository == null) {
+            productDetails = null
+            productDetailsError = getString(R.string.store_load_error)
+            productDetailsLoading = false
+            return
+        }
+        lifecycleScope.launch {
+            productDetailsLoading = true
+            productDetailsError = null
+            try {
+                productDetails = repository.loadProductDetails(productId)
+                if (productDetails == null) {
+                    productDetailsError = getString(R.string.product_unavailable)
+                }
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: HttpRequestTimeoutException) {
+                productDetailsError = getString(R.string.store_load_error)
+            } catch (_: HttpRequestException) {
+                productDetailsError = getString(R.string.store_load_error)
+            } catch (_: RestException) {
+                productDetailsError = getString(R.string.store_load_error)
+            } catch (_: SerializationException) {
+                productDetailsError = getString(R.string.store_load_error)
+            } catch (_: IOException) {
+                productDetailsError = getString(R.string.store_load_error)
+            } finally {
+                productDetailsLoading = false
+            }
+        }
+    }
+
+    private fun addToCart(details: StoreProductDetails, variant: StoreVariant) {
+        val existing = cartLines.firstOrNull { it.variantId == variant.id }
+        cartLines = if (existing == null) {
+            cartLines + CartLine(
+                variantId = variant.id,
+                productId = details.id,
+                productName = details.name,
+                variantName = variant.name,
+                weightGrams = variant.weightGrams,
+                unitPriceMinor = variant.priceMinor,
+                quantity = 1,
+            )
+        } else {
+            cartLines.map {
+                if (it.variantId == variant.id && it.quantity < Int.MAX_VALUE) {
+                    it.copy(quantity = it.quantity + 1)
+                } else {
+                    it
+                }
+            }
+        }
+        checkoutReceipt = null
+        checkoutError = null
+        clearCheckoutIdempotencyKey()
+        selectedNavigationItem = "السلة"
+    }
+
+    private fun updateCartQuantity(variantId: String, quantity: Int) {
+        cartLines = cartLines.mapNotNull { line ->
+            when {
+                line.variantId != variantId -> line
+                quantity <= 0 -> null
+                else -> line.copy(quantity = quantity)
+            }
+        }
+        checkoutError = null
+        clearCheckoutIdempotencyKey()
+    }
+
+    private fun selectShippingRegion(regionId: String) {
+        if (selectedShippingRegionId != regionId) {
+            selectedShippingRegionId = regionId
+            clearCheckoutIdempotencyKey()
+            checkoutError = null
+        }
+    }
+
+    private fun selectPaymentMethod(method: PrepaidPaymentMethod) {
+        if (selectedPaymentMethod != method) {
+            selectedPaymentMethod = method
+            clearCheckoutIdempotencyKey()
+            checkoutError = null
+        }
+    }
+
+    private fun loadCheckoutOptions() {
+        val repository = checkoutRepository
+        if (repository == null) {
+            checkoutOptionsError = getString(R.string.backend_config_missing)
+            return
+        }
+        lifecycleScope.launch {
+            checkoutOptionsLoading = true
+            checkoutOptionsError = null
+            try {
+                val latestTerms = repository.loadTerms()
+                if (checkoutTerms?.sha256 != latestTerms.sha256) {
+                    checkoutTermsAccepted = false
+                }
+                if (checkoutIdempotencyKey != null &&
+                    (checkoutKeyTermsVersion != latestTerms.version ||
+                        checkoutKeyTermsSha256 != latestTerms.sha256)
+                ) {
+                    clearCheckoutIdempotencyKey()
+                }
+                checkoutTerms = latestTerms
+                shippingRegions = repository.loadShippingRegions()
+                if (shippingRegions.none { it.id == selectedShippingRegionId }) {
+                    selectedShippingRegionId = shippingRegions.firstOrNull()?.id
+                }
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: HttpRequestTimeoutException) {
+                checkoutOptionsError = getString(R.string.checkout_options_error)
+            } catch (_: HttpRequestException) {
+                checkoutOptionsError = getString(R.string.checkout_options_error)
+            } catch (_: RestException) {
+                checkoutOptionsError = getString(R.string.checkout_options_error)
+            } catch (_: SerializationException) {
+                checkoutOptionsError = getString(R.string.checkout_options_error)
+            } catch (_: IOException) {
+                checkoutOptionsError = getString(R.string.checkout_options_error)
+            } finally {
+                checkoutOptionsLoading = false
+            }
+        }
+    }
+
+    private fun submitCheckout() {
+        if (!isAuthenticated) {
+            checkoutError = getString(R.string.checkout_sign_in_required)
+            selectNavigationItem("حسابي")
+            return
+        }
+        val repository = checkoutRepository ?: run {
+            checkoutError = getString(R.string.backend_config_missing)
+            return
+        }
+        val terms = checkoutTerms ?: return
+        val regionId = selectedShippingRegionId ?: return
+        if (cartLines.isEmpty() || !checkoutTermsAccepted || checkoutSubmitting) return
+
+        val idempotencyKey = checkoutIdempotencyKey ?: UUID.randomUUID().toString().also {
+            checkoutIdempotencyKey = it
+            checkoutKeyTermsVersion = terms.version
+            checkoutKeyTermsSha256 = terms.sha256
+        }
+        val submittedItems = cartLines.toList()
+        val submittedPaymentMethod = selectedPaymentMethod
+        lifecycleScope.launch {
+            checkoutSubmitting = true
+            checkoutError = null
+            try {
+                checkoutReceipt = repository.createOrder(
+                    items = submittedItems,
+                    idempotencyKey = idempotencyKey,
+                    paymentMethod = submittedPaymentMethod,
+                    shippingRegionId = regionId,
+                    terms = terms,
+                )
+                cartLines = emptyList()
+                clearCheckoutIdempotencyKey()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: HttpRequestTimeoutException) {
+                checkoutError = getString(R.string.checkout_submit_error)
+            } catch (_: HttpRequestException) {
+                checkoutError = getString(R.string.checkout_submit_error)
+            } catch (_: RestException) {
+                checkoutError = getString(R.string.checkout_submit_error)
+                loadCheckoutOptions()
+            } catch (_: SerializationException) {
+                checkoutError = getString(R.string.checkout_submit_error)
+            } catch (_: IOException) {
+                checkoutError = getString(R.string.checkout_submit_error)
+            } finally {
+                checkoutSubmitting = false
+            }
+        }
+    }
+
+    private fun restoreCheckoutState(savedInstanceState: Bundle?) {
+        if (savedInstanceState == null) return
+
+        savedInstanceState.getString(STATE_CART_LINES)?.let { serializedCart ->
+            try {
+                cartLines = Json.decodeFromString(serializedCart)
+            } catch (_: SerializationException) {
+                checkoutError = getString(R.string.cart_restore_error)
+                cartLines = emptyList()
+            } catch (_: IllegalArgumentException) {
+                checkoutError = getString(R.string.cart_restore_error)
+                cartLines = emptyList()
+            }
+        }
+
+        selectedShippingRegionId = savedInstanceState.getString(STATE_SHIPPING_REGION_ID)
+        savedInstanceState.getString(STATE_PAYMENT_METHOD)?.let { savedMethod ->
+            selectedPaymentMethod = PrepaidPaymentMethod.values()
+                .firstOrNull { it.apiValue == savedMethod }
+                ?: PrepaidPaymentMethod.CARD
+        }
+        val savedKey = savedInstanceState.getString(STATE_CHECKOUT_IDEMPOTENCY_KEY)
+        if (savedKey != null) {
+            try {
+                checkoutIdempotencyKey = UUID.fromString(savedKey).toString()
+                checkoutKeyTermsVersion =
+                    savedInstanceState.getString(STATE_CHECKOUT_TERMS_VERSION)
+                checkoutKeyTermsSha256 =
+                    savedInstanceState.getString(STATE_CHECKOUT_TERMS_SHA256)
+            } catch (_: IllegalArgumentException) {
+                checkoutError = getString(R.string.cart_restore_error)
+            }
+        }
+    }
+
+    private fun clearCheckoutIdempotencyKey() {
+        checkoutIdempotencyKey = null
+        checkoutKeyTermsVersion = null
+        checkoutKeyTermsSha256 = null
     }
 
     private fun requireAuthRepository(): AuthRepository =
@@ -298,6 +590,15 @@ class MainActivity : ComponentActivity() {
         BackendConfiguration.Missing -> getString(R.string.backend_config_missing)
         BackendConfiguration.Invalid -> getString(R.string.backend_config_invalid)
         is BackendConfiguration.Ready -> getString(R.string.store_load_error)
+    }
+
+    private companion object {
+        const val STATE_CART_LINES = "checkout.cart_lines"
+        const val STATE_CHECKOUT_IDEMPOTENCY_KEY = "checkout.idempotency_key"
+        const val STATE_CHECKOUT_TERMS_VERSION = "checkout.terms_version"
+        const val STATE_CHECKOUT_TERMS_SHA256 = "checkout.terms_sha256"
+        const val STATE_SHIPPING_REGION_ID = "checkout.shipping_region_id"
+        const val STATE_PAYMENT_METHOD = "checkout.payment_method"
     }
 }
 
@@ -421,31 +722,6 @@ private fun AccountContent(
     }
 }
 
-@androidx.compose.runtime.Composable
-private fun ProductDetailsDialog(
-    product: StoreProduct,
-    onDismiss: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(product.name) },
-        text = {
-            Text(
-                stringResource(
-                    R.string.product_details,
-                    product.weightGrams,
-                    formatPrice(product.priceMinor),
-                ),
-            )
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.close))
-            }
-        },
-    )
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @androidx.compose.runtime.Composable
 private fun ConfigurationContent(
@@ -472,11 +748,4 @@ private fun ConfigurationContent(
             Text(message, color = MaterialTheme.colorScheme.error)
         }
     }
-}
-
-private fun formatPrice(priceMinor: Long): String {
-    val formatter = NumberFormat.getCurrencyInstance(Locale.forLanguageTag("ar-EG")).apply {
-        currency = Currency.getInstance("EGP")
-    }
-    return formatter.format(BigDecimal.valueOf(priceMinor, 2))
 }

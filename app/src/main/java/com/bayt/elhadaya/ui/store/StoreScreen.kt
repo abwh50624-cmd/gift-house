@@ -48,7 +48,7 @@ data class StoreProduct(
     val categoryId: String,
     val name: String,
     val priceMinor: Long,
-    val weightGrams: Int,
+    val variantCount: Int,
     val image: Painter? = null,
     val imageDescription: String? = null,
 ) {
@@ -57,9 +57,31 @@ data class StoreProduct(
         require(categoryId.isNotBlank())
         require(name.isNotBlank())
         require(priceMinor > 0)
-        require(weightGrams > 0)
+        require(variantCount > 0)
     }
 }
+
+data class StoreVariant(
+    val id: String,
+    val name: String,
+    val weightGrams: Int,
+    val priceMinor: Long,
+) {
+    init {
+        require(id.isNotBlank())
+        require(name.isNotBlank())
+        require(weightGrams > 0)
+        require(priceMinor > 0)
+    }
+}
+
+data class StoreProductDetails(
+    val id: String,
+    val categoryId: String,
+    val name: String,
+    val description: String?,
+    val variants: List<StoreVariant>,
+)
 
 sealed interface StoreUiState {
     data object Loading : StoreUiState
@@ -195,7 +217,7 @@ private fun StoreContent(
                         price = formatEgyptianPrice(product.priceMinor),
                         image = product.image,
                         imageContentDescription = product.imageDescription ?: product.name,
-                        badge = stringResource(R.string.store_weight_grams, product.weightGrams),
+                        badge = stringResource(R.string.store_variant_count, product.variantCount),
                         onClick = { onProductSelected(product.id) },
                     )
                 }

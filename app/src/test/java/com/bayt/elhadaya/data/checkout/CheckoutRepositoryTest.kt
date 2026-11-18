@@ -1,0 +1,54 @@
+package com.bayt.elhadaya.data.checkout
+
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Test
+
+class CheckoutRepositoryTest {
+    @Test
+    fun checkoutRpcParametersMatchServerSignatureAndExcludeClientPrices() {
+        val parameters = createCheckoutOrderParameters(
+            items = listOf(
+                CartLine(
+                    variantId = "54000000-0000-0000-0000-000000000001",
+                    productId = "53000000-0000-0000-0000-000000000001",
+                    productName = "صندوق",
+                    variantName = "كبير",
+                    weightGrams = 500,
+                    unitPriceMinor = 12500,
+                    quantity = 2,
+                ),
+            ),
+            idempotencyKey = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            paymentMethod = PrepaidPaymentMethod.CARD,
+            shippingRegionId = "55000000-0000-0000-0000-000000000001",
+            terms = CheckoutTerms("prepaid-order-v1", "الشروط", "a".repeat(64)),
+        )
+
+        assertEquals(
+            setOf(
+                "p_items",
+                "p_idempotency_key",
+                "p_payment_method",
+                "p_shipping_region_id",
+                "p_terms_version",
+                "p_terms_sha256",
+            ),
+            parameters.keys,
+        )
+        val item = parameters.getValue("p_items").jsonArray.single().jsonObject
+        assertEquals(
+            setOf("variant_id", "quantity"),
+            item.keys,
+        )
+        assertEquals(
+            "54000000-0000-0000-0000-000000000001",
+            item.getValue("variant_id").jsonPrimitive.content,
+        )
+        assertEquals("2", item.getValue("quantity").jsonPrimitive.content)
+        assertFalse(item.containsKey("price_minor"))
+    }
+}

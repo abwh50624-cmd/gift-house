@@ -40,7 +40,27 @@ class CheckoutRepository(private val client: SupabaseClient) {
             ),
         ).decodeAs()
     }
+
+    suspend fun createSandboxPaymentIntent(
+        orderId: String,
+        idempotencyKey: String,
+    ): SandboxPaymentIntent =
+        client.postgrest.rpc(
+            function = "create_sandbox_payment_intent",
+            parameters = createSandboxPaymentIntentParameters(orderId, idempotencyKey),
+        ).decodeAs()
 }
+
+internal fun createSandboxPaymentIntentParameters(
+    orderId: String,
+    idempotencyKey: String,
+) = Json.encodeToJsonElement(
+    CreateSandboxPaymentIntentRequest.serializer(),
+    CreateSandboxPaymentIntentRequest(
+        orderId = orderId,
+        idempotencyKey = idempotencyKey,
+    ),
+).jsonObject
 
 internal fun createCheckoutOrderParameters(
     items: List<CartLine>,
@@ -119,6 +139,17 @@ data class CheckoutReceipt(
 )
 
 @Serializable
+data class SandboxPaymentIntent(
+    @SerialName("payment_attempt_id") val paymentAttemptId: String,
+    val provider: String,
+    @SerialName("payment_reference") val paymentReference: String,
+    @SerialName("amount_minor") val amountMinor: Long,
+    @SerialName("currency_code") val currencyCode: String,
+    val status: String,
+    val mode: String,
+)
+
+@Serializable
 private data class CreateCheckoutOrderRequest(
     @SerialName("p_items") val items: List<CheckoutItemRequest>,
     @SerialName("p_idempotency_key") val idempotencyKey: String,
@@ -126,6 +157,12 @@ private data class CreateCheckoutOrderRequest(
     @SerialName("p_shipping_region_id") val shippingRegionId: String,
     @SerialName("p_terms_version") val termsVersion: String,
     @SerialName("p_terms_sha256") val termsSha256: String,
+)
+
+@Serializable
+private data class CreateSandboxPaymentIntentRequest(
+    @SerialName("p_order_id") val orderId: String,
+    @SerialName("p_idempotency_key") val idempotencyKey: String,
 )
 
 @Serializable

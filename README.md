@@ -91,12 +91,37 @@ enable service features in a hosted project. Apply them only after reviewing
 the target project's remote migration history and schema; do not use a
 destructive reset on a database with unverified contents.
 
+The phase 7 migration adds idempotent sandbox payment intents and processes
+verified webhook events atomically with order-state changes, the private
+double-entry ledger, and review outbox records. A successful capture debits
+`PAYMENT_CLEARING` and credits the customer prepayment liability in integer
+EGP minor units. Unknown results remain `UNKNOWN`; duplicate event IDs are
+replay-safe, while amount/currency mismatches and late or additional captures
+are queued for review. The ledger journal and entries reuse the append-only,
+balanced posting engine from the foundation migration.
+
+`supabase/functions/payment-webhook` is a sandbox-only webhook endpoint. It
+checks an HMAC-SHA-256 signature over the timestamp and exact raw request body,
+rejects timestamps outside a five-minute window, bounds request size, and
+normalizes a strict event schema before calling the service-role-only RPC. It
+does not accept card data or simulate a successful payment from the Android
+client. Configure a random `SANDBOX_WEBHOOK_SECRET` of at least 32 characters
+as an Edge Function secret; `SUPABASE_URL` and
+`SUPABASE_SERVICE_ROLE_KEY` must remain in the protected Edge Function
+environment. The sandbox adapter implements the shared provider contract;
+future gateway adapters must independently verify that provider's official
+signature and normalize its events to the same schema. No live payment or
+shipping provider is configured. The shipping adapter contract is defined
+separately; checkout currently uses the server-managed `shipping_regions`
+rates. The sandbox must not be used to collect real payments.
+
 Apply and test with the Supabase CLI and Docker installed:
 
 ```sh
 supabase start
 supabase db reset
 supabase test db
+deno test supabase/functions/_shared/payment-provider_test.ts
 ```
 
 Never put a Supabase `service_role` key, database password, or provider secret

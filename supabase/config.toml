@@ -16,3 +16,6 @@ schema_paths = []
 [db.seed]
 enabled = false
 sql_paths = []
+
+[functions.payment-webhook]
+verify_jwt = false

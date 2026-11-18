@@ -53,6 +53,10 @@
     <string name="checkout_sign_in_required">سجّل الدخول للمتابعة إلى الدفع المسبق.</string>
     <string name="checkout_options_error">تعذر تحميل شروط الدفع ومناطق التوصيل. حاول مرة أخرى.</string>
     <string name="checkout_submit_error">تعذر إنشاء الطلب. يمكنك إعادة المحاولة بأمان؛ لن يتكرر الطلب.</string>
+    <string name="checkout_payment_intent_error">تعذر إعداد محاولة الدفع التجريبية. أعد المحاولة بأمان؛ لن يتكرر الطلب أو محاولة الدفع.</string>
     <string name="checkout_order_created">تم إنشاء الطلب رقم %1$s</string>
     <string name="checkout_payment_pending">الطلب بانتظار الدفع، ولا يعد مؤكداً حتى التحقق من نجاح الدفع.</string>
+    <string name="checkout_sandbox_mode">وضع تجريبي فقط: لا يتم تحصيل أي مبلغ حقيقي.</string>
+    <string name="checkout_sandbox_reference">مرجع الدفع التجريبي: %1$s</string>
+    <string name="checkout_retry_payment_intent">إعادة محاولة إعداد الدفع التجريبي</string>
 </resources>

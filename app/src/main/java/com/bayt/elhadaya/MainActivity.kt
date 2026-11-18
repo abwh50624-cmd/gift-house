@@ -32,6 +32,7 @@ import com.bayt.elhadaya.data.checkout.CheckoutReceipt
 import com.bayt.elhadaya.data.checkout.CheckoutRepository
 import com.bayt.elhadaya.data.checkout.CheckoutTerms
 import com.bayt.elhadaya.data.checkout.PrepaidPaymentMethod
+import com.bayt.elhadaya.data.checkout.SandboxPaymentIntent
 import com.bayt.elhadaya.data.checkout.ShippingRegion
 import com.bayt.elhadaya.ui.auth.AuthScreen
 import com.bayt.elhadaya.ui.checkout.CartScreen
@@ -85,7 +86,9 @@ class MainActivity : ComponentActivity() {
     private var checkoutOptionsError by mutableStateOf<String?>(null)
     private var checkoutError by mutableStateOf<String?>(null)
     private var checkoutReceipt by mutableStateOf<CheckoutReceipt?>(null)
+    private var sandboxPaymentIntent by mutableStateOf<SandboxPaymentIntent?>(null)
     private var checkoutIdempotencyKey: String? = null
+    private var paymentIntentIdempotencyKey: String? = null
     private var checkoutKeyTermsVersion: String? = null
     private var checkoutKeyTermsSha256: String? = null
     private var sessionInitializing by mutableStateOf(true)
@@ -148,6 +151,7 @@ class MainActivity : ComponentActivity() {
                         optionsError = checkoutOptionsError,
                         checkoutError = checkoutError,
                         receipt = checkoutReceipt,
+                        sandboxPaymentIntent = sandboxPaymentIntent,
                         selectedNavigationItem = selectedNavigationItem,
                         onQuantityChanged = ::updateCartQuantity,
                         onRegionSelected = ::selectShippingRegion,
@@ -155,6 +159,7 @@ class MainActivity : ComponentActivity() {
                         onTermsAccepted = { checkoutTermsAccepted = it },
                         onRetryOptions = ::loadCheckoutOptions,
                         onCheckout = ::submitCheckout,
+                        onRetryPaymentIntent = ::retrySandboxPaymentIntent,
                         onSignIn = { selectNavigationItem("حسابي") },
                         onNavigationItemSelected = ::selectNavigationItem,
                     )
@@ -189,7 +194,16 @@ class MainActivity : ComponentActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putString(STATE_CART_LINES, Json.encodeToString(cartLines))
+        outState.putString(
+            STATE_CHECKOUT_RECEIPT,
+            checkoutReceipt?.let { Json.encodeToString(it) },
+        )
+        outState.putString(
+            STATE_SANDBOX_PAYMENT_INTENT,
+            sandboxPaymentIntent?.let { Json.encodeToString(it) },
+        )
         outState.putString(STATE_CHECKOUT_IDEMPOTENCY_KEY, checkoutIdempotencyKey)
+        outState.putString(STATE_PAYMENT_INTENT_IDEMPOTENCY_KEY, paymentIntentIdempotencyKey)
         outState.putString(STATE_CHECKOUT_TERMS_VERSION, checkoutKeyTermsVersion)
         outState.putString(STATE_CHECKOUT_TERMS_SHA256, checkoutKeyTermsSha256)
         outState.putString(STATE_SHIPPING_REGION_ID, selectedShippingRegionId)
@@ -413,6 +427,8 @@ class MainActivity : ComponentActivity() {
             }
         }
         checkoutReceipt = null
+        sandboxPaymentIntent = null
+        paymentIntentIdempotencyKey = null
         checkoutError = null
         clearCheckoutIdempotencyKey()
         selectedNavigationItem = "السلة"
@@ -514,33 +530,88 @@ class MainActivity : ComponentActivity() {
             checkoutSubmitting = true
             checkoutError = null
             try {
-                checkoutReceipt = repository.createOrder(
+                val receipt = repository.createOrder(
                     items = submittedItems,
                     idempotencyKey = idempotencyKey,
                     paymentMethod = submittedPaymentMethod,
                     shippingRegionId = regionId,
                     terms = terms,
                 )
+                checkoutReceipt = receipt
                 cartLines = emptyList()
                 clearCheckoutIdempotencyKey()
+                createSandboxPaymentIntent(repository, receipt)
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (_: HttpRequestTimeoutException) {
-                checkoutError = getString(R.string.checkout_submit_error)
+                checkoutError = checkoutFailureMessage()
             } catch (_: HttpRequestException) {
-                checkoutError = getString(R.string.checkout_submit_error)
+                checkoutError = checkoutFailureMessage()
             } catch (_: RestException) {
-                checkoutError = getString(R.string.checkout_submit_error)
-                loadCheckoutOptions()
+                checkoutError = checkoutFailureMessage()
+                if (checkoutReceipt == null) loadCheckoutOptions()
             } catch (_: SerializationException) {
-                checkoutError = getString(R.string.checkout_submit_error)
+                checkoutError = checkoutFailureMessage()
             } catch (_: IOException) {
-                checkoutError = getString(R.string.checkout_submit_error)
+                checkoutError = checkoutFailureMessage()
             } finally {
                 checkoutSubmitting = false
             }
         }
     }
+
+    private fun retrySandboxPaymentIntent() {
+        val receipt = checkoutReceipt ?: return
+        val repository = checkoutRepository ?: run {
+            checkoutError = getString(R.string.backend_config_missing)
+            return
+        }
+        if (sandboxPaymentIntent != null || checkoutSubmitting) return
+
+        lifecycleScope.launch {
+            checkoutSubmitting = true
+            checkoutError = null
+            try {
+                createSandboxPaymentIntent(repository, receipt)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: HttpRequestTimeoutException) {
+                checkoutError = getString(R.string.checkout_payment_intent_error)
+            } catch (_: HttpRequestException) {
+                checkoutError = getString(R.string.checkout_payment_intent_error)
+            } catch (_: RestException) {
+                checkoutError = getString(R.string.checkout_payment_intent_error)
+            } catch (_: SerializationException) {
+                checkoutError = getString(R.string.checkout_payment_intent_error)
+            } catch (_: IOException) {
+                checkoutError = getString(R.string.checkout_payment_intent_error)
+            } finally {
+                checkoutSubmitting = false
+            }
+        }
+    }
+
+    private suspend fun createSandboxPaymentIntent(
+        repository: CheckoutRepository,
+        receipt: CheckoutReceipt,
+    ) {
+        val idempotencyKey = paymentIntentIdempotencyKey ?: UUID.randomUUID().toString().also {
+            paymentIntentIdempotencyKey = it
+        }
+        sandboxPaymentIntent = repository.createSandboxPaymentIntent(
+            orderId = receipt.orderId,
+            idempotencyKey = idempotencyKey,
+        )
+    }
+
+    private fun checkoutFailureMessage(): String =
+        getString(
+            if (checkoutReceipt == null) {
+                R.string.checkout_submit_error
+            } else {
+                R.string.checkout_payment_intent_error
+            },
+        )
 
     private fun restoreCheckoutState(savedInstanceState: Bundle?) {
         if (savedInstanceState == null) return
@@ -557,11 +628,37 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        savedInstanceState.getString(STATE_CHECKOUT_RECEIPT)?.let { serializedReceipt ->
+            try {
+                checkoutReceipt = Json.decodeFromString(serializedReceipt)
+            } catch (_: SerializationException) {
+                checkoutError = getString(R.string.cart_restore_error)
+            } catch (_: IllegalArgumentException) {
+                checkoutError = getString(R.string.cart_restore_error)
+            }
+        }
+        savedInstanceState.getString(STATE_SANDBOX_PAYMENT_INTENT)?.let { serializedIntent ->
+            try {
+                sandboxPaymentIntent = Json.decodeFromString(serializedIntent)
+            } catch (_: SerializationException) {
+                checkoutError = getString(R.string.cart_restore_error)
+            } catch (_: IllegalArgumentException) {
+                checkoutError = getString(R.string.cart_restore_error)
+            }
+        }
+
         selectedShippingRegionId = savedInstanceState.getString(STATE_SHIPPING_REGION_ID)
         savedInstanceState.getString(STATE_PAYMENT_METHOD)?.let { savedMethod ->
             selectedPaymentMethod = PrepaidPaymentMethod.values()
                 .firstOrNull { it.apiValue == savedMethod }
                 ?: PrepaidPaymentMethod.CARD
+        }
+        savedInstanceState.getString(STATE_PAYMENT_INTENT_IDEMPOTENCY_KEY)?.let { savedKey ->
+            try {
+                paymentIntentIdempotencyKey = UUID.fromString(savedKey).toString()
+            } catch (_: IllegalArgumentException) {
+                checkoutError = getString(R.string.cart_restore_error)
+            }
         }
         val savedKey = savedInstanceState.getString(STATE_CHECKOUT_IDEMPOTENCY_KEY)
         if (savedKey != null) {
@@ -594,7 +691,10 @@ class MainActivity : ComponentActivity() {
 
     private companion object {
         const val STATE_CART_LINES = "checkout.cart_lines"
+        const val STATE_CHECKOUT_RECEIPT = "checkout.receipt"
+        const val STATE_SANDBOX_PAYMENT_INTENT = "checkout.sandbox_payment_intent"
         const val STATE_CHECKOUT_IDEMPOTENCY_KEY = "checkout.idempotency_key"
+        const val STATE_PAYMENT_INTENT_IDEMPOTENCY_KEY = "checkout.payment_intent_idempotency_key"
         const val STATE_CHECKOUT_TERMS_VERSION = "checkout.terms_version"
         const val STATE_CHECKOUT_TERMS_SHA256 = "checkout.terms_sha256"
         const val STATE_SHIPPING_REGION_ID = "checkout.shipping_region_id"

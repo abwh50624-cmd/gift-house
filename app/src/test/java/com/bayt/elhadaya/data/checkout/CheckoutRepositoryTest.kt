@@ -51,4 +51,22 @@ class CheckoutRepositoryTest {
         assertEquals("2", item.getValue("quantity").jsonPrimitive.content)
         assertFalse(item.containsKey("price_minor"))
     }
+
+    @Test
+    fun sandboxPaymentIntentParametersMatchServerSignature() {
+        val parameters = createSandboxPaymentIntentParameters(
+            orderId = "81000000-0000-0000-0000-000000000001",
+            idempotencyKey = "82000000-0000-0000-0000-000000000001",
+        )
+
+        assertEquals(setOf("p_order_id", "p_idempotency_key"), parameters.keys)
+        assertEquals(
+            "81000000-0000-0000-0000-000000000001",
+            parameters.getValue("p_order_id").jsonPrimitive.content,
+        )
+        assertEquals(
+            "82000000-0000-0000-0000-000000000001",
+            parameters.getValue("p_idempotency_key").jsonPrimitive.content,
+        )
+    }
 }

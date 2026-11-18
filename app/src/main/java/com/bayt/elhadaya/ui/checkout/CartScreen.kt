@@ -29,6 +29,7 @@ import com.bayt.elhadaya.data.checkout.CartLine
 import com.bayt.elhadaya.data.checkout.CheckoutReceipt
 import com.bayt.elhadaya.data.checkout.CheckoutTerms
 import com.bayt.elhadaya.data.checkout.PrepaidPaymentMethod
+import com.bayt.elhadaya.data.checkout.SandboxPaymentIntent
 import com.bayt.elhadaya.data.checkout.ShippingRegion
 import com.bayt.elhadaya.ui.components.LuxuryBottomNav
 import com.bayt.elhadaya.ui.components.LuxuryPalette
@@ -53,6 +54,7 @@ fun CartScreen(
     optionsError: String?,
     checkoutError: String?,
     receipt: CheckoutReceipt?,
+    sandboxPaymentIntent: SandboxPaymentIntent?,
     selectedNavigationItem: String,
     onQuantityChanged: (String, Int) -> Unit,
     onRegionSelected: (String) -> Unit,
@@ -60,6 +62,7 @@ fun CartScreen(
     onTermsAccepted: (Boolean) -> Unit,
     onRetryOptions: () -> Unit,
     onCheckout: () -> Unit,
+    onRetryPaymentIntent: () -> Unit,
     onSignIn: () -> Unit,
     onNavigationItemSelected: (String) -> Unit,
 ) {
@@ -106,6 +109,30 @@ fun CartScreen(
                     color = LuxuryPalette.LightGold,
                 )
                 Text(stringResource(R.string.checkout_total, formatPrice(receipt.totalMinor)))
+                if (sandboxPaymentIntent != null) {
+                    Text(stringResource(R.string.checkout_sandbox_mode))
+                    Text(
+                        stringResource(
+                            R.string.checkout_sandbox_reference,
+                            sandboxPaymentIntent.paymentReference,
+                        ),
+                    )
+                } else {
+                    checkoutError?.let {
+                        Text(it, color = MaterialTheme.colorScheme.error)
+                    }
+                    Button(
+                        onClick = onRetryPaymentIntent,
+                        enabled = !isSubmitting,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        if (isSubmitting) {
+                            CircularProgressIndicator()
+                        } else {
+                            Text(stringResource(R.string.checkout_retry_payment_intent))
+                        }
+                    }
+                }
                 return@Column
             }
 

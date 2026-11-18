@@ -8,6 +8,8 @@ import io.github.jan.supabase.auth.providers.invoke
 import io.github.jan.supabase.auth.providers.builtin.Email
 
 class AuthRepository(private val client: SupabaseClient) {
+    suspend fun accessToken(): String? = client.auth.currentSessionOrNull()?.accessToken
+
     suspend fun signInWithEmail(emailAddress: String, password: String) {
         client.auth.signInWith(Email) {
             email = emailAddress.trim()

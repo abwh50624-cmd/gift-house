@@ -19,3 +19,6 @@ sql_paths = []
 
 [functions.payment-webhook]
 verify_jwt = false
+
+[functions.ai-concierge]
+verify_jwt = true

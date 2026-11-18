@@ -8,16 +8,29 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import android.net.Uri
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -34,11 +47,22 @@ import com.bayt.elhadaya.data.checkout.CheckoutTerms
 import com.bayt.elhadaya.data.checkout.PrepaidPaymentMethod
 import com.bayt.elhadaya.data.checkout.SandboxPaymentIntent
 import com.bayt.elhadaya.data.checkout.ShippingRegion
+import com.bayt.elhadaya.data.orders.CustomerOrder
+import com.bayt.elhadaya.data.orders.CustomerOrdersRepository
+import com.bayt.elhadaya.data.orders.CustomerReturnRequest
+import com.bayt.elhadaya.data.support.SupportMessage
+import com.bayt.elhadaya.data.support.SupportRepository
 import com.bayt.elhadaya.ui.auth.AuthScreen
 import com.bayt.elhadaya.ui.checkout.CartScreen
 import com.bayt.elhadaya.ui.components.LuxuryBottomNav
+import com.bayt.elhadaya.ui.components.AppDrawer
+import com.bayt.elhadaya.ui.components.LuxuryGoldButton
+import com.bayt.elhadaya.ui.components.LuxuryPalette
 import com.bayt.elhadaya.ui.components.LuxuryTheme
 import com.bayt.elhadaya.ui.components.LuxuryTopBar
+import com.bayt.elhadaya.ui.chat.AiChatScreen
+import com.bayt.elhadaya.ui.chat.ChatMessage
+import com.bayt.elhadaya.ui.notifications.NotificationsScreen
 import com.bayt.elhadaya.ui.store.ProductDetailsScreen
 import com.bayt.elhadaya.ui.store.StoreScreen
 import com.bayt.elhadaya.ui.store.StoreProductDetails
@@ -67,10 +91,22 @@ class MainActivity : ComponentActivity() {
     private var authRepository: AuthRepository? = null
     private var catalogRepository: CatalogRepository? = null
     private var checkoutRepository: CheckoutRepository? = null
+    private var supportRepository: SupportRepository? = null
+    private var customerOrdersRepository: CustomerOrdersRepository? = null
 
     private var storeState by mutableStateOf<StoreUiState>(StoreUiState.Loading)
     private var selectedNavigationItem by mutableStateOf("المتجر")
+    private var selectedPrimaryCategoryId by mutableStateOf<String?>(null)
     private var selectedCategoryId by mutableStateOf<String?>(null)
+    private var unreadNotifications by mutableStateOf(3)
+    private var chatMessages by mutableStateOf<List<ChatMessage>>(emptyList())
+    private var chatThreadId by mutableStateOf<String?>(null)
+    private var chatSending by mutableStateOf(false)
+    private var chatError by mutableStateOf<String?>(null)
+    private var customerOrders by mutableStateOf<List<CustomerOrder>>(emptyList())
+    private var customerReturnRequests by mutableStateOf<List<CustomerReturnRequest>>(emptyList())
+    private var customerOrdersLoading by mutableStateOf(false)
+    private var customerOrdersError by mutableStateOf<String?>(null)
     private var selectedProductId by mutableStateOf<String?>(null)
     private var productDetails by mutableStateOf<StoreProductDetails?>(null)
     private var productDetailsLoading by mutableStateOf(false)
@@ -108,6 +144,12 @@ class MainActivity : ComponentActivity() {
             authRepository = AuthRepository(backend.client)
             catalogRepository = CatalogRepository(backend.client)
             checkoutRepository = CheckoutRepository(backend.client)
+            supportRepository = SupportRepository(
+                backend.client,
+                BuildConfig.SUPABASE_URL,
+                BuildConfig.SUPABASE_PUBLISHABLE_KEY,
+            )
+            customerOrdersRepository = CustomerOrdersRepository(backend.client)
             handleDeepLink(backend.client, intent)
             observeSession(backend.client)
             loadCatalog()
@@ -118,7 +160,59 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             LuxuryTheme {
-                if (selectedNavigationItem == "حسابي") {
+                val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+                val drawerScope = rememberCoroutineScope()
+                ModalNavigationDrawer(
+                    drawerState = drawerState,
+                    drawerContent = {
+                        AppDrawer(
+                            authenticated = isAuthenticated,
+                            accountEmail = accountEmail,
+                            onAccountSelected = {
+                                drawerScope.launch { drawerState.close() }
+                                selectNavigationItem("حسابي")
+                            },
+                            onNotificationsSelected = {
+                                drawerScope.launch { drawerState.close() }
+                                selectedNavigationItem = "الإشعارات"
+                                unreadNotifications = 0
+                            },
+                            onSettingsSelected = {
+                                drawerScope.launch { drawerState.close() }
+                                selectedNavigationItem = "الإعدادات"
+                            },
+                            onLogoutSelected = {
+                                drawerScope.launch { drawerState.close() }
+                                runAuthAction { requireAuthRepository().signOut() }
+                            },
+                        )
+                    },
+                ) {
+                if (selectedNavigationItem == "الإشعارات") {
+                    NotificationsScreen(onBack = { selectedNavigationItem = "المتجر" })
+                } else if (selectedNavigationItem == "الإعدادات") {
+                    SettingsScreen(onBack = { selectedNavigationItem = "المتجر" })
+                } else if (selectedNavigationItem == "طلباتي" || selectedNavigationItem == "المرتجعات") {
+                    CustomerOrdersScreen(
+                        returnMode = selectedNavigationItem == "المرتجعات",
+                        orders = customerOrders,
+                        returnRequests = customerReturnRequests,
+                        isLoading = customerOrdersLoading,
+                        errorMessage = customerOrdersError,
+                        onRefresh = ::loadCustomerOrders,
+                        onSubmitReturn = ::submitReturnRequest,
+                        onNavigationItemSelected = ::selectNavigationItem,
+                    )
+                } else if (selectedNavigationItem == "المساعد الذكي") {
+                    AiChatScreen(
+                        messages = chatMessages,
+                        isSending = chatSending,
+                        errorMessage = chatError,
+                        onSendText = ::sendChatText,
+                        onSendImage = ::sendChatImage,
+                        onBack = { selectedNavigationItem = "المتجر" },
+                    )
+                } else if (selectedNavigationItem == "حسابي") {
                     AccountContent(
                         configuration = backendConfiguration,
                         busy = authBusy,
@@ -135,6 +229,14 @@ class MainActivity : ComponentActivity() {
                         onGoogleSignIn = { runAuthAction { requireAuthRepository().signInWithGoogle() } },
                         onFacebookSignIn = { runAuthAction { requireAuthRepository().signInWithFacebook() } },
                         onSignOut = { runAuthAction { requireAuthRepository().signOut() } },
+                        onOrdersSelected = {
+                            selectedNavigationItem = "طلباتي"
+                            loadCustomerOrders()
+                        },
+                        onReturnSelected = {
+                            selectedNavigationItem = "المرتجعات"
+                            loadCustomerOrders()
+                        },
                         onNavigationItemSelected = ::selectNavigationItem,
                     )
                 } else if (selectedNavigationItem == "السلة") {
@@ -177,7 +279,13 @@ class MainActivity : ComponentActivity() {
                 } else {
                     StoreScreen(
                         state = storeState,
+                        selectedPrimaryCategoryId = selectedPrimaryCategoryId,
                         selectedCategoryId = selectedCategoryId,
+                        unreadNotifications = unreadNotifications,
+                        onPrimaryCategorySelected = {
+                            selectedPrimaryCategoryId = it
+                            if (it == null) selectedCategoryId = null
+                        },
                         selectedNavigationItem = selectedNavigationItem,
                         onCategorySelected = { selectedCategoryId = it },
                         onProductSelected = { productId ->
@@ -185,8 +293,15 @@ class MainActivity : ComponentActivity() {
                             loadProductDetails(productId)
                         },
                         onNavigationItemSelected = ::selectNavigationItem,
+                        onAiSelected = { selectedNavigationItem = "المساعد الذكي" },
+                        onNotificationsSelected = {
+                            unreadNotifications = 0
+                            selectedNavigationItem = "الإشعارات"
+                        },
+                        onDrawerSelected = { drawerScope.launch { drawerState.open() } },
                         onRetry = ::loadCatalog,
                     )
+                }
                 }
             }
         }
@@ -365,9 +480,148 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun selectNavigationItem(item: String) {
-        if (item in setOf("المتجر", "حسابي", "السلة")) {
+        if (item in setOf("المتجر", "حسابي", "السلة", "مساعد ذكي", "الإشعارات", "طلباتي", "المرتجعات")) {
             selectedNavigationItem = item
+            if (item == "مساعد ذكي") selectedNavigationItem = "المساعد الذكي"
             if (item != "المتجر") selectedProductId = null
+        }
+    }
+
+    private fun sendChatText(text: String) {
+        if (text.isBlank()) return
+        val repository = supportRepository ?: run {
+            chatError = getString(R.string.backend_config_missing)
+            return
+        }
+        if (!isAuthenticated) {
+            chatError = getString(R.string.checkout_sign_in_required)
+            selectNavigationItem("حسابي")
+            return
+        }
+        chatSending = true
+        chatError = null
+        lifecycleScope.launch {
+            try {
+                val accessToken = authRepository?.accessToken()
+                    ?: throw IllegalStateException(getString(R.string.checkout_sign_in_required))
+                val threadId = chatThreadId ?: run {
+                    val opened = repository.openThread(
+                        subject = "مساعد الهدايا الذكي",
+                        initialMessage = text.trim(),
+                        idempotencyKey = UUID.randomUUID().toString(),
+                    )
+                    chatThreadId = opened.threadId
+                    observeSupportMessages(opened.threadId)
+                    opened.threadId
+                }
+                if (chatThreadId != null) {
+                    val existingThreadId = requireNotNull(chatThreadId)
+                    if (existingThreadId != threadId) {
+                        throw IllegalStateException("Unable to open support thread")
+                    }
+                    if (text.isNotBlank() && chatMessages.isNotEmpty()) {
+                        repository.sendMessage(
+                            threadId,
+                            text.trim(),
+                            UUID.randomUUID().toString(),
+                        )
+                    }
+                }
+                repository.requestAiReply(
+                    threadId = threadId,
+                    subject = "مساعد الهدايا الذكي",
+                    message = text.trim(),
+                    complaintKind = "GENERAL",
+                    orderId = null,
+                    accessToken = accessToken,
+                )
+            } catch (error: Throwable) {
+                if (error !is CancellationException) {
+                    chatError = backendErrorMessage(error)
+                }
+            } finally {
+                chatSending = false
+            }
+        }
+    }
+
+    private fun sendChatImage(uri: Uri) {
+        chatMessages = chatMessages + ChatMessage(
+            id = UUID.randomUUID().toString(),
+            text = "صورة مرفقة",
+            fromAi = false,
+            imageUri = uri,
+        )
+        sendChatText("صورة مرفقة")
+    }
+
+    private fun observeSupportMessages(threadId: String) {
+        lifecycleScope.launch {
+            supportRepository?.observeMessages(threadId)?.collect { messages ->
+                chatMessages = messages.map { message ->
+                    ChatMessage(
+                        id = message.messageId,
+                        text = message.body,
+                        fromAi = message.senderType == "AI",
+                    )
+                }
+            }
+        }
+    }
+
+    private fun loadCustomerOrders() {
+        val repository = customerOrdersRepository ?: run {
+            customerOrdersError = getString(R.string.backend_config_missing)
+            return
+        }
+        if (!isAuthenticated) {
+            customerOrdersError = getString(R.string.checkout_sign_in_required)
+            selectNavigationItem("حسابي")
+            return
+        }
+        customerOrdersLoading = true
+        customerOrdersError = null
+        lifecycleScope.launch {
+            try {
+                customerOrders = repository.loadOrders()
+                customerReturnRequests = repository.loadReturnRequests()
+            } catch (error: Throwable) {
+                if (error !is CancellationException) {
+                    customerOrdersError = backendErrorMessage(error)
+                }
+            } finally {
+                customerOrdersLoading = false
+            }
+        }
+    }
+
+    private fun submitReturnRequest(orderId: String, refundAmountMinor: Long, reason: String) {
+        val repository = customerOrdersRepository ?: run {
+            customerOrdersError = getString(R.string.backend_config_missing)
+            return
+        }
+        if (reason.trim().length < 10) {
+            customerOrdersError = "يرجى كتابة سبب الإرجاع بوضوح (10 أحرف على الأقل)"
+            return
+        }
+        customerOrdersLoading = true
+        customerOrdersError = null
+        lifecycleScope.launch {
+            try {
+                repository.createReturnRequest(
+                    orderId = orderId,
+                    refundAmountMinor = refundAmountMinor,
+                    reason = reason.trim(),
+                    idempotencyKey = UUID.randomUUID().toString(),
+                )
+                loadCustomerOrders()
+            } catch (error: Throwable) {
+                if (error !is CancellationException) {
+                    customerOrdersError = backendErrorMessage(error)
+                }
+            } finally {
+                customerOrdersLoading = false
+            }
         }
     }
 
@@ -704,6 +958,145 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @androidx.compose.runtime.Composable
+private fun CustomerOrdersScreen(
+    returnMode: Boolean,
+    orders: List<CustomerOrder>,
+    returnRequests: List<CustomerReturnRequest>,
+    isLoading: Boolean,
+    errorMessage: String?,
+    onRefresh: () -> Unit,
+    onSubmitReturn: (String, Long, String) -> Unit,
+    onNavigationItemSelected: (String) -> Unit,
+) {
+    var selectedOrderId by remember { mutableStateOf<String?>(null) }
+    var refundAmount by remember { mutableStateOf("") }
+    var returnReason by remember { mutableStateOf("") }
+
+    Scaffold(
+        topBar = { LuxuryTopBar(title = if (returnMode) "طلبات الإرجاع" else "طلباتي") },
+        bottomBar = {
+            LuxuryBottomNav(
+                selectedItem = "حسابي",
+                onItemSelected = onNavigationItemSelected,
+            )
+        },
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item {
+                LuxuryGoldButton(
+                    text = "تحديث",
+                    onClick = onRefresh,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isLoading,
+                )
+            }
+            if (isLoading) {
+                item {
+                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                }
+            }
+            if (errorMessage != null) {
+                item {
+                    Text(
+                        text = errorMessage,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+            if (returnMode) {
+                items(orders.filter { it.orderStatus == "DELIVERED" }, key = { it.orderId }) { order ->
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text("${order.orderId} • ${order.orderStatus}")
+                        LuxuryGoldButton(
+                            text = "اختيار للطلب",
+                            onClick = {
+                                selectedOrderId = order.orderId
+                                refundAmount = order.totalMinor.toString()
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                            enabled = !isLoading,
+                        )
+                    }
+                }
+                item {
+                    if (selectedOrderId != null) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            OutlinedTextField(
+                                value = refundAmount,
+                                onValueChange = { refundAmount = it.filter(Char::isDigit) },
+                                label = { Text("مبلغ الاسترداد بالدراهم") },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            OutlinedTextField(
+                                value = returnReason,
+                                onValueChange = { returnReason = it },
+                                label = { Text("سبب الإرجاع") },
+                                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                            )
+                            LuxuryGoldButton(
+                                text = "إرسال طلب الإرجاع",
+                                onClick = {
+                                    val amount = refundAmount.toLongOrNull()
+                                    val orderId = selectedOrderId
+                                    if (amount != null && orderId != null) {
+                                        onSubmitReturn(orderId, amount, returnReason)
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                                enabled = !isLoading && refundAmount.isNotBlank() && returnReason.isNotBlank(),
+                            )
+                        }
+                    }
+                }
+                items(returnRequests, key = { it.returnRequestId }) { request ->
+                    Text("${request.status} • ${request.refundAmountMinor}")
+                }
+            } else {
+                items(orders, key = { it.orderId }) { order ->
+                    Text(
+                        text = "${order.orderId}\n${order.orderStatus} • ${order.paymentStatus} • ${order.shippingStatus}\n${order.totalMinor / 100}.${order.totalMinor % 100} ${order.currencyCode}",
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@androidx.compose.runtime.Composable
+private fun SettingsScreen(onBack: () -> Unit) {
+    Scaffold(
+        topBar = {
+            LuxuryTopBar(
+                title = "الإعدادات",
+                navigationIcon = {
+                    androidx.compose.material3.TextButton(onClick = onBack) {
+                        Text("رجوع")
+                    }
+                },
+            )
+        },
+    ) { padding ->
+        Column(
+            modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("الإعدادات", style = MaterialTheme.typography.headlineSmall)
+            Text("اللغة: العربية", color = LuxuryPalette.SecondaryText)
+            Text("الإشعارات: مفعلة", color = LuxuryPalette.SecondaryText)
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@androidx.compose.runtime.Composable
 private fun AccountContent(
     configuration: BackendConfiguration,
     busy: Boolean,
@@ -720,6 +1113,8 @@ private fun AccountContent(
     onGoogleSignIn: () -> Unit,
     onFacebookSignIn: () -> Unit,
     onSignOut: () -> Unit,
+    onOrdersSelected: () -> Unit,
+    onReturnSelected: () -> Unit,
     onNavigationItemSelected: (String) -> Unit,
 ) {
     when (configuration) {
@@ -759,6 +1154,18 @@ private fun AccountContent(
                             email ?: stringResource(R.string.account_title),
                         ),
                         style = MaterialTheme.typography.titleMedium,
+                    )
+                    LuxuryGoldButton(
+                        text = "طلباتي",
+                        onClick = onOrdersSelected,
+                        modifier = Modifier.fillMaxWidth().padding(top = 20.dp),
+                        enabled = !busy,
+                    )
+                    LuxuryGoldButton(
+                        text = "طلب إرجاع",
+                        onClick = onReturnSelected,
+                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                        enabled = !busy,
                     )
                     Button(
                         onClick = onSignOut,

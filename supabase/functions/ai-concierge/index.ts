@@ -1,4 +1,4 @@
-import { SandboxAiConciergeAdapter } from "../_shared/ai-concierge.ts";
+import { GeminiAiConciergeAdapter } from "../_shared/ai-concierge.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -19,8 +19,9 @@ Deno.serve(async (request) => {
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const geminiApiKey = Deno.env.get("GEMINI_API_KEY");
   const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
-  if (!supabaseUrl || !serviceRoleKey || !token) {
+  if (!supabaseUrl || !serviceRoleKey || !token || !geminiApiKey) {
     return new Response("AI concierge is not configured", {
       status: 500,
       headers: corsHeaders,
@@ -55,6 +56,8 @@ Deno.serve(async (request) => {
   const message = payload.message;
   const complaintKind = payload.complaint_kind ?? null;
   const orderId = payload.order_id ?? null;
+  const imageObjectKey = payload.image_object_key;
+  const imageUrl = payload.image_url;
 
   if (
     typeof threadId !== "string" ||
@@ -69,14 +72,39 @@ Deno.serve(async (request) => {
   }
 
   try {
-    const adapter = new SandboxAiConciergeAdapter();
-    const reply = await adapter.reply({
+    const requestContext = {
       scope: "CUSTOMER",
       subject,
       message,
       complaintKind:
         typeof complaintKind === "string" ? complaintKind : null,
       orderId: typeof orderId === "string" ? orderId : null,
+    };
+    let catalogContext = "";
+    try {
+      const catalogResponse = await fetch(
+        `${supabaseUrl}/rest/v1/products?select=name,description,image_object_key&status=eq.PUBLISHED&limit=40`,
+        { headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` } },
+      );
+      if (catalogResponse.ok) {
+        const products = await catalogResponse.json();
+        if (Array.isArray(products)) {
+          catalogContext = products
+            .map((product) => `${product.name}${product.description ? ` - ${product.description}` : ""}`)
+            .join("\n");
+        }
+      }
+    } catch {
+      catalogContext = "";
+    }
+    const adapter = new GeminiAiConciergeAdapter(
+      geminiApiKey,
+      Deno.env.get("R2_PUBLIC_BASE_URL"),
+    );
+    const reply = await adapter.reply(requestContext, {
+      context: catalogContext,
+      imageObjectKey: typeof imageObjectKey === "string" ? imageObjectKey : undefined,
+      imageUrl: typeof imageUrl === "string" ? imageUrl : undefined,
     });
 
     const rpcResponse = await fetch(

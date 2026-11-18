@@ -29,6 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
 
 @Composable
 fun LuxuryProductCard(
@@ -37,6 +38,7 @@ fun LuxuryProductCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     image: Painter? = null,
+    imageUrl: String? = null,
     imageContentDescription: String? = null,
     oldPrice: String? = null,
     badge: String? = null,
@@ -77,7 +79,14 @@ fun LuxuryProductCard(
                         ),
                     ),
             ) {
-                if (image != null) {
+                if (!imageUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = imageUrl,
+                        contentDescription = imageContentDescription,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else if (image != null) {
                     Image(
                         painter = image,
                         contentDescription = imageContentDescription,

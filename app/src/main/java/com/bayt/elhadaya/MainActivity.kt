@@ -208,7 +208,7 @@ class MainActivity : ComponentActivity() {
                         messages = chatMessages,
                         isSending = chatSending,
                         errorMessage = chatError,
-                        onSendText = ::sendChatText,
+                        onSendText = { text -> sendChatText(text) },
                         onSendImage = ::sendChatImage,
                         onBack = { selectedNavigationItem = "المتجر" },
                     )
@@ -487,7 +487,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun sendChatText(text: String) {
+    private fun sendChatText(
+        text: String,
+        imageObjectKey: String? = null,
+        imageUrl: String? = null,
+    ) {
         if (text.isBlank()) return
         val repository = supportRepository ?: run {
             chatError = getString(R.string.backend_config_missing)
@@ -533,6 +537,8 @@ class MainActivity : ComponentActivity() {
                     message = text.trim(),
                     complaintKind = "GENERAL",
                     orderId = null,
+                    imageObjectKey = imageObjectKey,
+                    imageUrl = imageUrl,
                     accessToken = accessToken,
                 )
             } catch (error: Throwable) {
@@ -552,7 +558,20 @@ class MainActivity : ComponentActivity() {
             fromAi = false,
             imageUri = uri,
         )
-        sendChatText("صورة مرفقة")
+        val repository = supportRepository ?: return
+        lifecycleScope.launch {
+            try {
+                chatSending = true
+                val accessToken = authRepository?.accessToken()
+                    ?: throw IllegalStateException(getString(R.string.checkout_sign_in_required))
+                val uploaded = repository.uploadChatImage(applicationContext, uri, accessToken)
+                sendChatText("راجع هذه الصورة واقترح هدية مناسبة", uploaded.objectKey, uploaded.publicUrl)
+            } catch (error: Throwable) {
+                if (error !is CancellationException) chatError = backendErrorMessage(error)
+            } finally {
+                chatSending = false
+            }
+        }
     }
 
     private fun observeSupportMessages(threadId: String) {

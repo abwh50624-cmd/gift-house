@@ -4,6 +4,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -22,6 +26,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.bayt.elhadaya.R
 import com.bayt.elhadaya.ui.components.LuxuryBottomNav
@@ -31,6 +36,8 @@ import java.math.BigDecimal
 import java.text.NumberFormat
 import java.util.Currency
 import java.util.Locale
+import coil.compose.AsyncImage
+import com.bayt.elhadaya.data.catalog.resolveR2PublicUrl
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -91,6 +98,16 @@ fun ProductDetailsScreen(
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 item {
+                    details.imageObjectKey?.let(resolveR2PublicUrl)?.let { imageUrl ->
+                        AsyncImage(
+                            model = imageUrl,
+                            contentDescription = details.name,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(1f)
+                                .clip(RoundedCornerShape(18.dp)),
+                        )
+                    }
                     Text(details.name, style = MaterialTheme.typography.headlineSmall)
                     details.description?.takeIf(String::isNotBlank)?.let {
                         Text(

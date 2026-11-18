@@ -13,6 +13,9 @@ val supabaseUrl = providers.gradleProperty("supabaseUrl")
 val supabasePublishableKey = providers.gradleProperty("supabasePublishableKey")
     .orElse(providers.environmentVariable("SUPABASE_PUBLISHABLE_KEY"))
     .getOrElse("")
+val r2PublicBaseUrl = providers.gradleProperty("r2PublicBaseUrl")
+    .orElse(providers.environmentVariable("R2_PUBLIC_BASE_URL"))
+    .getOrElse("")
 
 android {
     namespace = "com.bayt.elhadaya"
@@ -32,6 +35,7 @@ android {
             "SUPABASE_PUBLISHABLE_KEY",
             supabasePublishableKey.asJavaStringLiteral(),
         )
+        buildConfigField("String", "R2_PUBLIC_BASE_URL", r2PublicBaseUrl.asJavaStringLiteral())
     }
 
     buildFeatures {
@@ -59,6 +63,7 @@ dependencies {
     implementation(libs.supabase.auth)
     implementation(libs.supabase.postgrest)
     implementation(libs.ktor.client.android)
+    implementation(libs.coil.compose)
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)

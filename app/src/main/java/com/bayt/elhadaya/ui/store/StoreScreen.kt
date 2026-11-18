@@ -14,6 +14,9 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -22,6 +25,12 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,6 +50,7 @@ import java.util.Locale
 data class StoreCategory(
     val id: String,
     val name: String,
+    val parentId: String? = null,
 )
 
 data class StoreProduct(
@@ -49,7 +59,11 @@ data class StoreProduct(
     val name: String,
     val priceMinor: Long,
     val variantCount: Int,
+    val description: String? = null,
+    val colorVariants: List<String> = emptyList(),
     val image: Painter? = null,
+    val imageObjectKey: String? = null,
+    val imageUrl: String? = null,
     val imageDescription: String? = null,
 ) {
     init {
@@ -81,6 +95,8 @@ data class StoreProductDetails(
     val name: String,
     val description: String?,
     val variants: List<StoreVariant>,
+    val imageObjectKey: String? = null,
+    val imageUrl: String? = null,
 )
 
 sealed interface StoreUiState {
@@ -96,23 +112,54 @@ sealed interface StoreUiState {
 @Composable
 fun StoreScreen(
     state: StoreUiState,
+    selectedPrimaryCategoryId: String?,
     selectedCategoryId: String?,
     selectedNavigationItem: String,
+    unreadNotifications: Int,
+    onPrimaryCategorySelected: (String?) -> Unit,
     onCategorySelected: (String?) -> Unit,
     onProductSelected: (String) -> Unit,
     onNavigationItemSelected: (String) -> Unit,
+    onAiSelected: () -> Unit,
+    onNotificationsSelected: () -> Unit,
+    onDrawerSelected: () -> Unit,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(
         modifier = modifier,
         topBar = {
-            LuxuryTopBar(title = stringResource(R.string.store_title))
+            LuxuryTopBar(
+                title = stringResource(R.string.store_title),
+                navigationIcon = {
+                    IconButton(onClick = onDrawerSelected) {
+                        Icon(Icons.Filled.Menu, contentDescription = stringResource(R.string.drawer_open))
+                    }
+                },
+                actions = {
+                    IconButton(onClick = onNotificationsSelected) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.Notifications, contentDescription = stringResource(R.string.notifications_title))
+                            if (unreadNotifications > 0) {
+                                Text(
+                                    text = unreadNotifications.coerceAtMost(99).toString(),
+                                    modifier = Modifier
+                                        .size(18.dp)
+                                        .padding(2.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = LuxuryPalette.OnGold,
+                                )
+                            }
+                        }
+                    }
+                },
+            )
         },
         bottomBar = {
             LuxuryBottomNav(
                 selectedItem = selectedNavigationItem,
                 onItemSelected = onNavigationItemSelected,
+                onAiSelected = onAiSelected,
             )
         },
         containerColor = MaterialTheme.colorScheme.background,
@@ -137,7 +184,9 @@ fun StoreScreen(
 
             is StoreUiState.Content -> StoreContent(
                 state = state,
+                selectedPrimaryCategoryId = selectedPrimaryCategoryId,
                 selectedCategoryId = selectedCategoryId,
+                onPrimaryCategorySelected = onPrimaryCategorySelected,
                 onCategorySelected = onCategorySelected,
                 onProductSelected = onProductSelected,
                 contentPadding = contentPadding,
@@ -149,13 +198,22 @@ fun StoreScreen(
 @Composable
 private fun StoreContent(
     state: StoreUiState.Content,
+    selectedPrimaryCategoryId: String?,
     selectedCategoryId: String?,
+    onPrimaryCategorySelected: (String?) -> Unit,
     onCategorySelected: (String?) -> Unit,
     onProductSelected: (String) -> Unit,
     contentPadding: PaddingValues,
 ) {
+    val primaryCategories = state.categories.filter { it.parentId == null }
+    val subcategories = if (selectedPrimaryCategoryId == null) {
+        emptyList()
+    } else {
+        state.categories.filter { it.parentId == selectedPrimaryCategoryId }
+    }
+    val selectedPrimary = primaryCategories.firstOrNull { it.id == selectedPrimaryCategoryId }
     val visibleProducts = if (selectedCategoryId == null) {
-        state.products
+        if (selectedPrimaryCategoryId == null) state.products else emptyList()
     } else {
         state.products.filter { it.categoryId == selectedCategoryId }
     }
@@ -165,30 +223,53 @@ private fun StoreContent(
             .fillMaxSize()
             .padding(contentPadding),
     ) {
+        if (selectedPrimaryCategoryId != null) {
+            TextButton(onClick = { onPrimaryCategorySelected(null) }) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+                Text(selectedPrimary?.name ?: stringResource(R.string.store_categories))
+            }
+        }
+
         Text(
-            text = stringResource(R.string.store_categories),
+            text = if (selectedPrimaryCategoryId == null)
+                stringResource(R.string.store_primary_categories)
+            else if (selectedCategoryId == null)
+                stringResource(R.string.store_subcategories)
+            else
+                stringResource(R.string.store_products),
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp),
         )
 
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            item(key = "all") {
-                CategoryChip(
-                    name = stringResource(R.string.store_all_categories),
-                    selected = selectedCategoryId == null,
-                    onClick = { onCategorySelected(null) },
-                )
+        if (selectedPrimaryCategoryId == null) {
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(primaryCategories, key = StoreCategory::id) { category ->
+                    CategoryChip(
+                        name = category.name,
+                        selected = false,
+                        onClick = {
+                            onPrimaryCategorySelected(category.id)
+                            onCategorySelected(null)
+                        },
+                    )
+                }
             }
-            items(state.categories, key = StoreCategory::id) { category ->
-                CategoryChip(
-                    name = category.name,
-                    selected = selectedCategoryId == category.id,
-                    onClick = { onCategorySelected(category.id) },
-                )
+        } else if (selectedCategoryId == null) {
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(subcategories, key = StoreCategory::id) { category ->
+                    CategoryChip(
+                        name = category.name,
+                        selected = false,
+                        onClick = { onCategorySelected(category.id) },
+                    )
+                }
             }
         }
 
@@ -216,6 +297,7 @@ private fun StoreContent(
                         productName = product.name,
                         price = formatEgyptianPrice(product.priceMinor),
                         image = product.image,
+                        imageUrl = product.imageUrl,
                         imageContentDescription = product.imageDescription ?: product.name,
                         badge = stringResource(R.string.store_variant_count, product.variantCount),
                         onClick = { onProductSelected(product.id) },

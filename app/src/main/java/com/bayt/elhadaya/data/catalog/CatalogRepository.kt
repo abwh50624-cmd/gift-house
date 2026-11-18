@@ -6,23 +6,31 @@ import com.bayt.elhadaya.ui.store.StoreProductDetails
 import com.bayt.elhadaya.ui.store.StoreUiState
 import com.bayt.elhadaya.ui.store.StoreVariant
 import io.github.jan.supabase.SupabaseClient
+import com.bayt.elhadaya.BuildConfig
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.query.Order
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
+fun resolveR2PublicUrl(objectKey: String): String? {
+    val base = BuildConfig.R2_PUBLIC_BASE_URL.trim().trimEnd('/')
+    val key = objectKey.trim().trimStart('/')
+    if (base.isBlank() || key.isBlank()) return null
+    return "$base/$key"
+}
+
 class CatalogRepository(private val client: SupabaseClient) {
     suspend fun loadCatalog(): StoreUiState.Content {
         val categories = client.from("categories")
-            .select(Columns.list("category_id", "name")) {
+            .select(Columns.list("category_id", "parent_category_id", "name")) {
                 filter { eq("is_active", true) }
                 order("display_order", Order.ASCENDING)
             }
             .decodeList<CategoryRow>()
 
         val products = client.from("products")
-            .select(Columns.list("product_id", "category_id", "name")) {
+            .select(Columns.list("product_id", "category_id", "name", "description", "image_object_key")) {
                 filter { eq("status", "PUBLISHED") }
             }
             .decodeList<ProductRow>()
@@ -60,6 +68,7 @@ class CatalogRepository(private val client: SupabaseClient) {
                     "category_id",
                     "name",
                     "description",
+                    "image_object_key",
                 ),
             ) {
                 filter {
@@ -94,6 +103,8 @@ class CatalogRepository(private val client: SupabaseClient) {
             categoryId = product.categoryId,
             name = product.name,
             description = product.description,
+            imageObjectKey = product.imageObjectKey,
+            imageUrl = product.imageObjectKey?.let(::resolveR2PublicUrl),
             variants = variants.map {
                 StoreVariant(
                     id = it.variantId,
@@ -113,7 +124,9 @@ internal fun mapCatalog(
 ): StoreUiState.Content {
     val categoryById = categories.associateBy(CategoryRow::categoryId)
     val productById = products.associateBy(ProductRow::productId)
-    val storeCategories = categories.map { StoreCategory(it.categoryId, it.name) }
+    val storeCategories = categories.map {
+        StoreCategory(it.categoryId, it.name, it.parentCategoryId)
+    }
     val storeProducts = variants.groupBy(VariantRow::productId).map { (productId, productVariants) ->
         val product = requireNotNull(productById[productId]) {
             "Catalog returned a variant without its visible product."
@@ -127,6 +140,11 @@ internal fun mapCatalog(
             name = product.name,
             priceMinor = productVariants.minOf(VariantRow::priceMinor),
             variantCount = productVariants.size,
+            imageObjectKey = product.imageObjectKey,
+            imageUrl = product.imageObjectKey?.let(::resolveR2PublicUrl),
+            imageDescription = product.description ?: product.name,
+            description = product.description,
+            colorVariants = productVariants.map(VariantRow::variantName).distinct(),
         )
     }
     return StoreUiState.Content(storeCategories, storeProducts)
@@ -136,6 +154,7 @@ internal fun mapCatalog(
 internal data class CategoryRow(
     @SerialName("category_id") val categoryId: String,
     val name: String,
+    @SerialName("parent_category_id") val parentCategoryId: String? = null,
     val description: String? = null,
 )
 
@@ -145,6 +164,7 @@ internal data class ProductRow(
     @SerialName("category_id") val categoryId: String,
     val name: String,
     val description: String? = null,
+    @SerialName("image_object_key") val imageObjectKey: String? = null,
 )
 
 @Serializable

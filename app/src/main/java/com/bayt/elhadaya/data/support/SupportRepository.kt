@@ -1,5 +1,11 @@
 package com.bayt.elhadaya.data.support
 
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
+import java.io.ByteArrayOutputStream
+
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
 import io.ktor.client.HttpClient
@@ -7,6 +13,7 @@ import io.ktor.client.engine.android.Android
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.header
 import io.ktor.client.request.post
+import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
@@ -29,6 +36,54 @@ class SupportRepository(
     private val supabaseUrl: String,
     private val publishableKey: String,
 ) {
+    suspend fun uploadChatImage(
+        context: Context,
+        uri: Uri,
+        accessToken: String,
+    ): R2UploadResult {
+        val original = context.contentResolver.openInputStream(uri)?.use { input ->
+            BitmapFactory.decodeStream(input)
+        } ?: throw IllegalStateException("Unable to read selected image")
+        val encoded = ByteArrayOutputStream().use { output ->
+            if (!original.compress(Bitmap.CompressFormat.WEBP, 85, output)) {
+                throw IllegalStateException("Unable to optimize selected image")
+            }
+            output.toByteArray()
+        }
+        if (encoded.isEmpty() || encoded.size > 10 * 1024 * 1024) {
+            throw IllegalStateException("Uploaded image must be no larger than 10 MB")
+        }
+        original.recycle()
+
+        val http = HttpClient(Android)
+        try {
+            val presign: HttpResponse = http.post("${supabaseUrl.trimEnd('/')}/functions/v1/r2-presign") {
+                header("apikey", publishableKey)
+                bearerAuth(accessToken)
+                contentType(ContentType.Application.Json)
+                setBody(
+                    Json.encodeToString(
+                        R2PresignRequest.serializer(),
+                        R2PresignRequest("image/webp", encoded.size.toLong()),
+                    ),
+                )
+            }
+            if (!presign.status.isSuccess()) {
+                throw IllegalStateException(presign.bodyAsText().ifBlank { "Unable to prepare image upload" })
+            }
+            val presigned = Json.decodeFromString<R2PresignResponse>(presign.bodyAsText())
+            val upload: HttpResponse = http.put(presigned.uploadUrl) {
+                contentType(ContentType.parse("image/webp"))
+                setBody(encoded)
+            }
+            if (!upload.status.isSuccess()) {
+                throw IllegalStateException("Image upload failed (${upload.status.value})")
+            }
+            return R2UploadResult(presigned.objectKey, presigned.publicUrl)
+        } finally {
+            http.close()
+        }
+    }
     suspend fun openThread(
         subject: String,
         initialMessage: String,
@@ -80,6 +135,8 @@ class SupportRepository(
         message: String,
         complaintKind: String?,
         orderId: String?,
+        imageObjectKey: String? = null,
+        imageUrl: String? = null,
         accessToken: String,
     ) {
         val http = HttpClient(Android)
@@ -91,7 +148,7 @@ class SupportRepository(
                 setBody(
                     Json.encodeToString(
                         AiConciergeRequest.serializer(),
-                        AiConciergeRequest(threadId, subject, message, complaintKind, orderId),
+                        AiConciergeRequest(threadId, subject, message, complaintKind, orderId, imageObjectKey, imageUrl),
                     ),
                 )
             }
@@ -135,6 +192,26 @@ private data class AiConciergeRequest(
     val message: String,
     @SerialName("complaint_kind") val complaintKind: String?,
     @SerialName("order_id") val orderId: String?,
+    @SerialName("image_object_key") val imageObjectKey: String? = null,
+    @SerialName("image_url") val imageUrl: String? = null,
+)
+
+@Serializable
+private data class R2PresignRequest(
+    @SerialName("content_type") val contentType: String,
+    val size: Long,
+)
+
+@Serializable
+private data class R2PresignResponse(
+    @SerialName("upload_url") val uploadUrl: String,
+    @SerialName("object_key") val objectKey: String,
+    @SerialName("public_url") val publicUrl: String? = null,
+)
+
+data class R2UploadResult(
+    val objectKey: String,
+    val publicUrl: String?,
 )
 
 @Serializable

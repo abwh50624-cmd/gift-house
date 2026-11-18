@@ -5,6 +5,14 @@ export interface SupplierTelegramEnvironment {
   SUPABASE_URL: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
   TELEGRAM_WEBHOOK_SECRET: string;
+  TELEGRAM_BOT_TOKEN?: string;
+  R2_MEDIA_BUCKET?: R2Bucket;
+}
+
+interface R2Bucket {
+  put(key: string, value: ArrayBuffer | Uint8Array, options?: {
+    httpMetadata?: { contentType?: string };
+  }): Promise<unknown>;
 }
 
 interface TelegramMessage {
@@ -12,6 +20,8 @@ interface TelegramMessage {
   chat: { id: number };
   from?: { id: number };
   text?: string;
+  caption?: string;
+  photo?: Array<{ file_id: string; file_unique_id: string; width: number; height: number; file_size?: number }>;
 }
 
 interface TelegramUpdate {
@@ -66,6 +76,100 @@ function isSafeTelegramId(value: unknown, allowNegative = false): value is numbe
   );
 }
 
+async function syncSupplierPhoto(
+  message: TelegramMessage,
+  updateId: number,
+  environment: SupplierTelegramEnvironment,
+  fetcher: typeof fetch,
+): Promise<Response | null> {
+  if (!message.photo?.length) return null;
+  const token = environment.TELEGRAM_BOT_TOKEN;
+  const bucket = environment.R2_MEDIA_BUCKET;
+  if (!token || !bucket) {
+    console.error("Telegram photo sync is not configured");
+    return jsonResponse(503, { error: "telegram_media_sync_unavailable" });
+  }
+
+  const photo = message.photo.reduce((largest, candidate) =>
+    candidate.width * candidate.height > largest.width * largest.height ? candidate : largest
+  );
+  let fileResponse: Response;
+  try {
+    fileResponse = await fetcher(
+      `https://api.telegram.org/bot${token}/getFile?file_id=${encodeURIComponent(photo.file_id)}`,
+      { signal: AbortSignal.timeout(10_000) },
+    );
+  } catch {
+    return jsonResponse(503, { error: "telegram_media_sync_unavailable" });
+  }
+  if (!fileResponse.ok) return jsonResponse(503, { error: "telegram_media_sync_unavailable" });
+  const fileResult = await fileResponse.json() as unknown;
+  if (!isRecord(fileResult) || fileResult.ok !== true || !isRecord(fileResult.result) ||
+      typeof fileResult.result.file_path !== "string") {
+    return jsonResponse(503, { error: "telegram_media_sync_unavailable" });
+  }
+
+  let imageResponse: Response;
+  try {
+    imageResponse = await fetcher(
+      `https://api.telegram.org/file/bot${token}/${fileResult.result.file_path}`,
+      { signal: AbortSignal.timeout(20_000) },
+    );
+  } catch {
+    return jsonResponse(503, { error: "telegram_media_sync_unavailable" });
+  }
+  if (!imageResponse.ok) return jsonResponse(503, { error: "telegram_media_sync_unavailable" });
+  const bytes = new Uint8Array(await imageResponse.arrayBuffer());
+  if (bytes.byteLength === 0 || bytes.byteLength > 10 * 1024 * 1024) {
+    return jsonResponse(413, { error: "media_too_large" });
+  }
+  const objectKey =
+    `supplier-photos/${message.chat.id}/${message.from?.id}/${updateId}-${message.message_id}.webp`;
+  try {
+    await bucket.put(objectKey, bytes, { httpMetadata: { contentType: "image/webp" } });
+  } catch {
+    return jsonResponse(503, { error: "telegram_media_sync_unavailable" });
+  }
+
+  const caption = message.caption ?? "";
+  const itemMatch = /^\/available\s+([A-Z0-9_-]{1,64})\b/i.exec(caption);
+  const itemCode = itemMatch?.[1]?.toUpperCase();
+  if (!itemCode) return jsonResponse(200, { ok: true, status: "MEDIA_SAVED", duplicate: false });
+
+  const databaseResponse = await fetcher(
+    `${environment.SUPABASE_URL.replace(/\/+$/, "")}/rest/v1/rpc/ingest_supplier_telegram_photo`,
+    {
+      method: "POST",
+      headers: {
+        apikey: environment.SUPABASE_SERVICE_ROLE_KEY,
+        authorization: `Bearer ${environment.SUPABASE_SERVICE_ROLE_KEY}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        p_update_id: updateId,
+        p_chat_id: message.chat.id,
+        p_user_id: message.from?.id,
+        p_message_id: message.message_id,
+        p_supplier_item_code: itemCode,
+        p_image_object_key: objectKey,
+      }),
+      signal: AbortSignal.timeout(10_000),
+    },
+  );
+  if (!databaseResponse.ok) {
+    return jsonResponse(503, { error: "supplier_photo_processing_unavailable" });
+  }
+  const result = await databaseResponse.json() as unknown;
+  if (!isRecord(result) || typeof result.status !== "string") {
+    return jsonResponse(503, { error: "supplier_photo_processing_unavailable" });
+  }
+  return jsonResponse(200, {
+    ok: true,
+    status: result.status,
+    object_key: objectKey,
+  });
+}
+
 async function readLimitedBody(request: Request): Promise<Uint8Array | null> {
   if (request.body === null) return null;
   const reader = request.body.getReader();
@@ -110,14 +214,25 @@ function decodeUpdate(value: unknown): TelegramUpdate | null {
     message.text.length === 0 ||
     message.text.length > 256
   ) {
-    return {
-      update_id: value.update_id,
-      message: {
-        message_id: message.message_id,
-        chat: { id: message.chat.id },
-        from: { id: message.from.id },
-      },
+    const result: TelegramMessage = {
+      message_id: message.message_id,
+      chat: { id: message.chat.id },
+      from: { id: message.from.id },
     };
+    if (typeof message.caption === "string" && message.caption.length <= 256) {
+      result.caption = message.caption;
+    }
+    if (Array.isArray(message.photo)) {
+      const photos = message.photo.filter((photo) =>
+        isRecord(photo) &&
+        typeof photo.file_id === "string" &&
+        typeof photo.file_unique_id === "string" &&
+        typeof photo.width === "number" &&
+        typeof photo.height === "number"
+      ) as TelegramMessage["photo"];
+      if (photos?.length) result.photo = photos;
+    }
+    return { update_id: value.update_id, message: result };
   }
   return {
     update_id: value.update_id,
@@ -188,6 +303,15 @@ export async function handleSupplierTelegramWebhook(
   const message = update.message;
   if (message?.from === undefined) {
     return jsonResponse(200, { ok: true, status: "IGNORED" });
+  }
+  if (message.photo?.length) {
+    const photoResponse = await syncSupplierPhoto(
+      message,
+      update.update_id,
+      environment,
+      fetcher,
+    );
+    if (photoResponse !== null) return photoResponse;
   }
   if (message.text === undefined || !supplierCommand.test(message.text)) {
     return jsonResponse(200, { ok: true, status: "IGNORED" });

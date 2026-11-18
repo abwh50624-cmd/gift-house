@@ -63,6 +63,9 @@ jobs:
       - name: Test supplier Telegram Worker
         run: node --experimental-strip-types --test cloudflare/supplier-telegram/index_test.ts
 
+      - name: Test sandbox shipping adapter
+        run: node --experimental-strip-types --test supabase/functions/_shared/shipping-provider_test.ts
+
   secrets:
     runs-on: ubuntu-latest
     steps:

@@ -135,6 +135,16 @@ media downloads, image conversion, R2 storage, outbound Telegram delivery,
 and live supplier integrations remain unconfigured. Never put Worker secrets
 in Wrangler vars, source control, or the Android application.
 
+The phase 9 shipping foundation adds a sandbox-only shipment request and
+tracking lifecycle for paid, fully sourced orders. It reuses the region and
+rate frozen in the checkout snapshot, rejects changed or inactive rates, and
+records provider status updates idempotently with monotonic transitions. Only
+admins can request a shipment; customers can read tracking for their own
+orders. The Bosta and Egyptian Post adapter is a deterministic mock: it makes
+no network requests, returns no real tracking number, and must not be used to
+dispatch parcels. Address collection, provider credentials, signed live
+callbacks, and label generation remain future work.
+
 Apply and test with the Supabase CLI and Docker installed:
 
 ```sh
@@ -143,6 +153,7 @@ supabase db reset
 supabase test db
 deno test supabase/functions/_shared/payment-provider_test.ts
 node --experimental-strip-types --test cloudflare/supplier-telegram/index_test.ts
+node --experimental-strip-types --test supabase/functions/_shared/shipping-provider_test.ts
 ```
 
 Never put a Supabase `service_role` key, database password, or provider secret

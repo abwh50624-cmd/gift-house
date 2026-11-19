@@ -176,6 +176,7 @@ accounts/orders and sandbox provider accounts until live-provider certification.
 | E18 | RLS/grants matrix | Positive and negative tests for anon/customer/admin/super-admin/service operations on every exposed table/RPC; verify no accidental private-schema exposure. |
 | E19 | Operations and recovery | Reservation/outbox/expiry schedules, payment reconciliation, alerting, secret rotation, PITR restore drill with recorded RPO/RTO. |
 | E20 | Android UX/accessibility | RTL, small/large screens, loading/error/empty states, all navigation items, long labels, accessibility semantics, notification/chat updates, and airplane/network recovery. |
+| **Temporary Supabase Media Bridge & R2 Migration Note** | `supabase/functions/r2-presign/index.ts`, `cloudflare/supplier-telegram/wrangler.toml`, `app/build.gradle.kts`, `CatalogRepository.kt`, `SupportRepository.kt` | **Temporary Supabase (`gift-house-media`) -> R2 Ready.** Keep R2 files on GitHub (`gift-house-media`, `{purpose}/{user.id}/{uuid}.webp`). Temp mode uses Supabase Storage + `R2_PUBLIC_BASE_URL` pointing to Supabase public bucket URL. Future R2 migration: create `gift-house-media` bucket in R2, copy objects preserving `object_key`, set `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `R2_PUBLIC_BASE_URL`, and switch `R2_PUBLIC_BASE_URL` to R2 public URL. |
 
 ## Definitive pre-APK engineering checklist
 

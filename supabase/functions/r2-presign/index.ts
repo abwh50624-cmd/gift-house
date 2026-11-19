@@ -49,10 +49,10 @@ Deno.serve(async (request) => {
   const secretAccessKey = Deno.env.get("R2_SECRET_ACCESS_KEY");
   const bucket = Deno.env.get("R2_BUCKET_NAME");
   const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
-  if (!supabaseUrl || !serviceRoleKey || !token ||
-      !accountId || !accessKeyId || !secretAccessKey || !bucket) {
-    return new Response("R2 storage is not configured", { status: 500, headers: corsHeaders });
+  if (!supabaseUrl || !serviceRoleKey || !token) {
+    return new Response("Storage service is not configured", { status: 500, headers: corsHeaders });
   }
+  const useR2 = Boolean(accountId && accessKeyId && secretAccessKey && bucket);
 
   const userResponse = await fetch(`${supabaseUrl}/auth/v1/user`, {
     headers: { apikey: serviceRoleKey, Authorization: `Bearer ${token}` },
@@ -81,6 +81,56 @@ Deno.serve(async (request) => {
 
   const purpose = payload.purpose === "catalog" ? "catalog" : "chat";
   const objectKey = `${purpose}/${user.id}/${crypto.randomUUID()}.webp`;
+  if (!useR2) {
+    const tempBucket = Deno.env.get("SUPABASE_STORAGE_BUCKET") || "gift-house-media";
+    const encodedKeyPath = objectKey.split("/").map(encodeURIComponent).join("/");
+    const signRes = await fetch(
+      `${supabaseUrl.replace(/\/+$/, "")}/storage/v1/object/upload/sign/${encodeURIComponent(tempBucket)}/${encodedKeyPath}`,
+      {
+        method: "POST",
+        headers: {
+          "apikey": serviceRoleKey,
+          "Authorization": `Bearer ${serviceRoleKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ upsert: true }),
+      },
+    );
+    if (!signRes.ok) {
+      const errText = await signRes.text();
+      return new Response(errText || "Failed to create Supabase signed upload URL", {
+        status: signRes.status,
+        headers: corsHeaders,
+      });
+    }
+    const signData = await signRes.json();
+    const rawSignedUrl = typeof signData?.url === "string"
+      ? signData.url
+      : (typeof signData?.signedURL === "string" ? signData.signedURL : "");
+    if (!rawSignedUrl) {
+      return new Response("Invalid Supabase signed upload response", {
+        status: 500,
+        headers: corsHeaders,
+      });
+    }
+    const baseUrlClean = supabaseUrl.replace(/\/+$/, "");
+    const uploadUrl = rawSignedUrl.startsWith("http")
+      ? rawSignedUrl
+      : `${baseUrlClean}${rawSignedUrl.startsWith("/storage/v1") ? "" : "/storage/v1"}${rawSignedUrl.startsWith("/") ? "" : "/"}${rawSignedUrl}`;
+    const configuredPublicBase = (Deno.env.get("R2_PUBLIC_BASE_URL") || "").replace(/\/+$/, "");
+    const publicBase = configuredPublicBase || `${baseUrlClean}/storage/v1/object/public/${tempBucket}`;
+    const publicUrl = `${publicBase}/${objectKey}`;
+    return new Response(JSON.stringify({
+      upload_url: uploadUrl,
+      object_key: objectKey,
+      public_url: publicUrl,
+      content_type: "image/webp",
+    }), {
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
   const host = `${accountId}.r2.cloudflarestorage.com`;
   const canonicalUri = `/${encodeRfc3986(bucket)}/${objectKey.split("/").map(encodeRfc3986).join("/")}`;
   const now = new Date();

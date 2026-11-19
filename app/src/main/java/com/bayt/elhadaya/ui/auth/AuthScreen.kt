@@ -3,6 +3,7 @@ package com.bayt.elhadaya.ui.auth
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -14,8 +15,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -27,6 +28,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
@@ -41,7 +43,6 @@ enum class SocialSignInProvider {
     FACEBOOK,
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AuthScreen(
     busy: Boolean,
@@ -64,8 +65,6 @@ fun AuthScreen(
     var verificationCode by remember { mutableStateOf("") }
     var createAccount by remember { mutableStateOf(false) }
     var termsAccepted by remember { mutableStateOf(false) }
-
-
 
     Scaffold(
         modifier = modifier,
@@ -110,7 +109,7 @@ fun AuthScreen(
                     contentPadding = PaddingValues(vertical = 14.dp),
                 ) {
                     if (busy) {
-                        CircularProgressIndicator()
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp))
                     } else {
                         Text(stringResource(R.string.auth_verify_code))
                     }
@@ -131,9 +130,7 @@ fun AuthScreen(
                 }
             } else {
                 Text(
-                    stringResource(
-                        if (createAccount) R.string.auth_create_account else R.string.auth_sign_in,
-                    ),
+                    text = stringResource(if (createAccount) R.string.auth_create_account else R.string.auth_sign_in),
                     style = MaterialTheme.typography.headlineSmall,
                 )
                 Spacer(Modifier.height(20.dp))
@@ -154,12 +151,15 @@ fun AuthScreen(
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     singleLine = true,
-                Spacer(Modifier.height(16.dp))
-                androidx.compose.foundation.layout.Row(
+                    enabled = !busy,
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                )
+                Spacer(Modifier.height(16.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    androidx.compose.material3.Checkbox(
+                    Checkbox(
                         checked = termsAccepted,
                         onCheckedChange = { termsAccepted = it },
                         enabled = !busy,
@@ -169,32 +169,17 @@ fun AuthScreen(
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
-
-                    enabled = !busy,
-                    modifier = Modifier.fillMaxWidth(),
-                )
                 Spacer(Modifier.height(16.dp))
                 Button(
-                    onClick = {
-                        if (termsAccepted) {
-                            onSubmitEmail(email, password, createAccount)
-                        } else {
-                            // TODO: Add error handling for terms not accepted
-                        }
-                    },
+                    onClick = { onSubmitEmail(email, password, createAccount) },
                     enabled = !busy && email.isNotBlank() && password.isNotBlank() && (termsAccepted || !createAccount),
                     modifier = Modifier.fillMaxWidth(),
                     contentPadding = PaddingValues(vertical = 14.dp),
                 ) {
                     if (busy && activeSocialSignInProvider == null) {
-                        CircularProgressIndicator()
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp))
                     } else {
-                        Text(
-                            stringResource(
-                                if (createAccount) R.string.auth_create_account
-                                else R.string.auth_sign_in,
-                            ),
-                        )
+                        Text(stringResource(if (createAccount) R.string.auth_create_account else R.string.auth_sign_in))
                     }
                 }
                 TextButton(
@@ -202,12 +187,7 @@ fun AuthScreen(
                     enabled = !busy,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text(
-                        stringResource(
-                            if (createAccount) R.string.auth_have_account
-                            else R.string.auth_need_account,
-                        ),
-                    )
+                    Text(stringResource(if (createAccount) R.string.auth_have_account else R.string.auth_need_account))
                 }
                 Spacer(Modifier.height(16.dp))
                 OutlinedButton(
@@ -217,10 +197,7 @@ fun AuthScreen(
                     contentPadding = PaddingValues(vertical = 14.dp),
                 ) {
                     if (activeSocialSignInProvider == SocialSignInProvider.GOOGLE) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp,
-                        )
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                         Spacer(Modifier.width(8.dp))
                     }
                     Text(stringResource(R.string.auth_google))
@@ -233,10 +210,7 @@ fun AuthScreen(
                     contentPadding = PaddingValues(vertical = 14.dp),
                 ) {
                     if (activeSocialSignInProvider == SocialSignInProvider.FACEBOOK) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp,
-                        )
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                         Spacer(Modifier.width(8.dp))
                     }
                     Text(stringResource(R.string.auth_facebook))
@@ -244,19 +218,11 @@ fun AuthScreen(
             }
             if (errorMessage != null) {
                 Spacer(Modifier.height(16.dp))
-                Text(
-                    text = errorMessage,
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodyMedium,
-                )
+                Text(text = errorMessage, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
             }
             if (successMessage != null) {
                 Spacer(Modifier.height(12.dp))
-                Text(
-                    text = successMessage,
-                    color = MaterialTheme.colorScheme.primary,
-                    style = MaterialTheme.typography.bodyMedium,
-                )
+                Text(text = successMessage, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium)
             }
         }
     }

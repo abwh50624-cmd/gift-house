@@ -96,7 +96,8 @@ fun ProductDetailsScreen(
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 item {
-                    val imageUrl = details.imageObjectKey?.let(resolveR2PublicUrl)
+                    // تصحيح السطر 99: تحويل مرجع الدالة إلى تعبير Lambda صريح لضمان استنتاج النوع
+                    val imageUrl = details.imageObjectKey?.let { key -> resolveR2PublicUrl(key) }
                     if (imageUrl != null) {
                         AsyncImage(
                             model = imageUrl,
@@ -123,7 +124,7 @@ fun ProductDetailsScreen(
                         modifier = Modifier.padding(top = 20.dp),
                     )
                 }
-                items(details.variants, key = StoreVariant::id) { variant ->
+                items(details.variants, key = { it.id }) { variant ->
                     Surface(
                         color = LuxuryPalette.GlassSurface,
                         shape = MaterialTheme.shapes.medium,

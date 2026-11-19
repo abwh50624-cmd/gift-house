@@ -7,12 +7,16 @@ plugins {
 fun String.asJavaStringLiteral(): String =
     "\"" + replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
+val productionSupabaseUrl = "https://wkhbxljqaywprplpadve.supabase.co"
+val productionSupabasePublishableKey =
+    "sb_publishable__p6sRxEQJEyix921A-QoWA_fl79wked"
+
 val supabaseUrl = providers.gradleProperty("supabaseUrl")
     .orElse(providers.environmentVariable("SUPABASE_URL"))
-    .getOrElse("")
+    .getOrElse(productionSupabaseUrl)
 val supabasePublishableKey = providers.gradleProperty("supabasePublishableKey")
     .orElse(providers.environmentVariable("SUPABASE_PUBLISHABLE_KEY"))
-    .getOrElse("")
+    .getOrElse(productionSupabasePublishableKey)
 val r2PublicBaseUrl = providers.gradleProperty("r2PublicBaseUrl")
     .orElse(providers.environmentVariable("R2_PUBLIC_BASE_URL"))
     .getOrElse("")

@@ -40,11 +40,17 @@ class AuthRepository(private val client: SupabaseClient) {
     }
 
     suspend fun signInWithGoogle() {
-        client.auth.signInWith(OAuthProvider("google"))
+        signInWithOAuthProvider("google")
     }
 
     suspend fun signInWithFacebook() {
-        client.auth.signInWith(OAuthProvider("facebook"))
+        signInWithOAuthProvider("facebook")
+    }
+
+    private suspend fun signInWithOAuthProvider(provider: String) {
+        client.auth.signInWith(OAuthProvider(provider)) {
+            automaticallyOpenUrl = true
+        }
     }
 
     suspend fun signOut() {

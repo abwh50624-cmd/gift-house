@@ -249,7 +249,7 @@ BEGIN
         FROM public.product_variants AS variant
         JOIN public.products AS product ON product.product_id = variant.product_id
         WHERE variant.variant_id = v_line.variant_id
-          AND variant.is_active AND product.is_published;
+          AND variant.is_active AND product.status = 'PUBLISHED';
         IF NOT FOUND THEN RAISE EXCEPTION 'cart contains unavailable variant' USING ERRCODE = '55000'; END IF;
         v_line_total := v_unit_price_minor::numeric * v_line.quantity;
         v_subtotal := v_subtotal + v_line_total;
@@ -306,10 +306,41 @@ BEGIN
         );
         UPDATE private.inventory_reservations
         SET expires_at = v_expires_at WHERE reservation_id = v_reservation_id;
+        INSERT INTO public.order_items (
+            order_id, variant_id, quantity, unit_price_minor, line_total_minor, item_snapshot
+        ) VALUES (
+            v_order_id,
+            (v_line.value ->> 'variant_id')::uuid,
+            (v_line.value ->> 'quantity')::bigint,
+            (v_line.value ->> 'unit_price_minor')::bigint,
+            (v_line.value ->> 'line_total_minor')::bigint,
+            v_line.value
+        );
     END LOOP;
 
+    INSERT INTO public.customer_contract_confirmations (
+        customer_id, order_id, terms_version, terms_sha256
+    ) VALUES (
+        v_customer_id, v_order_id, v_terms ->> 'version', v_terms ->> 'sha256'
+    );
+
+    INSERT INTO private.transactional_outbox (
+        aggregate_type, aggregate_id, event_type, payload
+    ) VALUES (
+        'order',
+        v_order_id,
+        'checkout.payment_requested',
+        jsonb_build_object(
+            'order_id', v_order_id,
+            'customer_id', v_customer_id,
+            'payment_method', p_payment_method,
+            'amount_minor', v_total::bigint,
+            'currency_code', 'EGP'
+        )
+    );
+
     v_response := jsonb_build_object(
-        'order_id', v_order_id, 'order_status', 'CREATED',
+        'order_id', v_order_id, 'order_status', 'PAYMENT_PENDING',
         'payment_status', 'PENDING', 'payment_method', p_payment_method,
         'currency_code', 'EGP', 'subtotal_minor', v_subtotal::bigint,
         'shipping_minor', v_shipping_minor, 'total_minor', v_total::bigint,

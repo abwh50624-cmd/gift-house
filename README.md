@@ -46,11 +46,17 @@ part of this catalog.
 
 The Android app uses Supabase Auth email/password and Google/Facebook OAuth,
 with PKCE and an Android Keystore-backed AES-GCM session and verifier store.
-Register `baytelhidaya://auth-callback` in Supabase Auth's redirect allow-list,
-and configure the Google and Facebook OAuth providers and their provider
-credentials in the Supabase dashboard. For mandatory email signup verification
-by code, enable email confirmations and configure the confirmation email template
-to include `{{ .Token }}`; the client verifies and can resend the signup code.
+In Supabase Dashboard > Authentication > URL Configuration, allow-list
+`baytelhidaya://auth-callback`. In Authentication > Providers, enable Google
+and Facebook and enter their provider credentials; configure each provider's
+OAuth client/app callback URL as
+`https://wkhbxljqaywprplpadve.supabase.co/auth/v1/callback` (or use the
+callback URL shown in the dashboard for another project). Google requires a
+Web OAuth client ID and secret, and Facebook requires an app ID and app secret.
+Keep provider secrets in Supabase, never in the Android app. For mandatory
+email signup verification by code, enable email confirmations and configure
+the confirmation email template to include `{{ .Token }}`; the client verifies
+and can resend the signup code.
 The catalog repository selects only
 active categories, published products, and active variants so anonymous
 browsing remains governed by the catalog RLS policies. Provider availability

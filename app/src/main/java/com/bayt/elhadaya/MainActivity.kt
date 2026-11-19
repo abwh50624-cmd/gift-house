@@ -53,6 +53,7 @@ import com.bayt.elhadaya.data.orders.CustomerReturnRequest
 import com.bayt.elhadaya.data.support.SupportMessage
 import com.bayt.elhadaya.data.support.SupportRepository
 import com.bayt.elhadaya.ui.auth.AuthScreen
+import com.bayt.elhadaya.ui.auth.SocialSignInProvider
 import com.bayt.elhadaya.ui.checkout.CartScreen
 import com.bayt.elhadaya.ui.components.LuxuryBottomNav
 import com.bayt.elhadaya.ui.components.AppDrawer
@@ -136,6 +137,7 @@ class MainActivity : ComponentActivity() {
     private var isAuthenticated by mutableStateOf(false)
     private var accountEmail by mutableStateOf<String?>(null)
     private var authBusy by mutableStateOf(false)
+    private var activeSocialSignInProvider by mutableStateOf<SocialSignInProvider?>(null)
     private var authError by mutableStateOf<String?>(null)
     private var authMessage by mutableStateOf<String?>(null)
     private var pendingVerificationEmail by mutableStateOf<String?>(null)
@@ -227,12 +229,13 @@ class MainActivity : ComponentActivity() {
                         errorMessage = authError,
                         successMessage = authMessage,
                         verificationEmail = pendingVerificationEmail,
+                        activeSocialSignInProvider = activeSocialSignInProvider,
                         onEmailAction = ::submitEmailAuth,
                         onVerifyEmailCode = ::verifyEmailCode,
                         onResendVerificationCode = ::resendVerificationCode,
                         onCancelEmailVerification = ::cancelEmailVerification,
-                        onGoogleSignIn = { runAuthAction { requireAuthRepository().signInWithGoogle() } },
-                        onFacebookSignIn = { runAuthAction { requireAuthRepository().signInWithFacebook() } },
+                        onGoogleSignIn = ::signInWithGoogle,
+                        onFacebookSignIn = ::signInWithFacebook,
                         onSignOut = { runAuthAction { requireAuthRepository().signOut() } },
                         onOrdersSelected = {
                             selectedNavigationItem = "طلباتي"
@@ -464,9 +467,25 @@ class MainActivity : ComponentActivity() {
         authMessage = null
     }
 
-    private fun runAuthAction(action: suspend () -> Unit) {
+    private fun signInWithGoogle() {
+        runAuthAction(SocialSignInProvider.GOOGLE) {
+            requireAuthRepository().signInWithGoogle()
+        }
+    }
+
+    private fun signInWithFacebook() {
+        runAuthAction(SocialSignInProvider.FACEBOOK) {
+            requireAuthRepository().signInWithFacebook()
+        }
+    }
+
+    private fun runAuthAction(
+        socialProvider: SocialSignInProvider? = null,
+        action: suspend () -> Unit,
+    ) {
         lifecycleScope.launch {
             authBusy = true
+            activeSocialSignInProvider = socialProvider
             authError = null
             authMessage = null
             try {
@@ -495,6 +514,7 @@ class MainActivity : ComponentActivity() {
                 authError = getString(R.string.auth_error)
             } finally {
                 authBusy = false
+                activeSocialSignInProvider = null
             }
         }
     }
@@ -1188,6 +1208,7 @@ private fun AccountContent(
     onCancelEmailVerification: () -> Unit,
     onGoogleSignIn: () -> Unit,
     onFacebookSignIn: () -> Unit,
+    activeSocialSignInProvider: SocialSignInProvider?,
     onSignOut: () -> Unit,
     onOrdersSelected: () -> Unit,
     onReturnSelected: () -> Unit,
@@ -1292,6 +1313,7 @@ private fun AccountContent(
                 errorMessage = errorMessage,
                 successMessage = successMessage,
                 verificationEmail = verificationEmail,
+                activeSocialSignInProvider = activeSocialSignInProvider,
                 selectedNavigationItem = "حسابي",
                 onSubmitEmail = onEmailAction,
                 onVerifyEmailCode = onVerifyEmailCode,

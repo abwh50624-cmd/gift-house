@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -34,6 +36,11 @@ import com.bayt.elhadaya.R
 import com.bayt.elhadaya.ui.components.LuxuryBottomNav
 import com.bayt.elhadaya.ui.components.LuxuryTopBar
 
+enum class SocialSignInProvider {
+    GOOGLE,
+    FACEBOOK,
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AuthScreen(
@@ -41,6 +48,7 @@ fun AuthScreen(
     errorMessage: String?,
     successMessage: String?,
     verificationEmail: String?,
+    activeSocialSignInProvider: SocialSignInProvider?,
     selectedNavigationItem: String,
     onSubmitEmail: (email: String, password: String, createAccount: Boolean) -> Unit,
     onVerifyEmailCode: (code: String) -> Unit,
@@ -153,7 +161,7 @@ fun AuthScreen(
                     modifier = Modifier.fillMaxWidth(),
                     contentPadding = PaddingValues(vertical = 14.dp),
                 ) {
-                    if (busy) {
+                    if (busy && activeSocialSignInProvider == null) {
                         CircularProgressIndicator()
                     } else {
                         Text(
@@ -183,6 +191,13 @@ fun AuthScreen(
                     modifier = Modifier.fillMaxWidth(),
                     contentPadding = PaddingValues(vertical = 14.dp),
                 ) {
+                    if (activeSocialSignInProvider == SocialSignInProvider.GOOGLE) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                    }
                     Text(stringResource(R.string.auth_google))
                 }
                 Spacer(Modifier.height(8.dp))
@@ -192,6 +207,13 @@ fun AuthScreen(
                     modifier = Modifier.fillMaxWidth(),
                     contentPadding = PaddingValues(vertical = 14.dp),
                 ) {
+                    if (activeSocialSignInProvider == SocialSignInProvider.FACEBOOK) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                    }
                     Text(stringResource(R.string.auth_facebook))
                 }
             }

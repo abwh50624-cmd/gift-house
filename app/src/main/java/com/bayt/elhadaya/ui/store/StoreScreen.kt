@@ -31,6 +31,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -116,12 +117,14 @@ fun StoreScreen(
     selectedCategoryId: String?,
     selectedNavigationItem: String,
     unreadNotifications: Int,
+    canManageCatalog: Boolean,
     onPrimaryCategorySelected: (String?) -> Unit,
     onCategorySelected: (String?) -> Unit,
     onProductSelected: (String) -> Unit,
     onNavigationItemSelected: (String) -> Unit,
     onAiSelected: () -> Unit,
     onNotificationsSelected: () -> Unit,
+    onCatalogAdminSelected: () -> Unit,
     onDrawerSelected: () -> Unit,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
@@ -137,6 +140,14 @@ fun StoreScreen(
                     }
                 },
                 actions = {
+                    if (canManageCatalog) {
+                        IconButton(onClick = onCatalogAdminSelected) {
+                            Icon(
+                                Icons.Filled.Edit,
+                                contentDescription = stringResource(R.string.catalog_admin_menu),
+                            )
+                        }
+                    }
                     IconButton(onClick = onNotificationsSelected) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Filled.Notifications, contentDescription = stringResource(R.string.notifications_title))

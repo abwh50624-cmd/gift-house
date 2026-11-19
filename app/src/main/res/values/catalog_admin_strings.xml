@@ -1,0 +1,37 @@
+<resources>
+    <string name="catalog_admin_title">إدارة الكتالوج</string>
+    <string name="catalog_admin_admin">صلاحية مسؤول المنتجات</string>
+    <string name="catalog_admin_super_admin">صلاحية المسؤول الأعلى</string>
+    <string name="catalog_admin_add_category">إضافة تصنيف</string>
+    <string name="catalog_admin_category_name">اسم التصنيف</string>
+    <string name="catalog_admin_slug">المعرّف اللاتيني</string>
+    <string name="catalog_admin_slug_hint">أحرف لاتينية صغيرة وأرقام وشرطات فقط</string>
+    <string name="catalog_admin_parent_category">التصنيف الرئيسي</string>
+    <string name="catalog_admin_root_category">تصنيف رئيسي</string>
+    <string name="catalog_admin_description">الوصف (اختياري)</string>
+    <string name="catalog_admin_activate_category">تفعيل التصنيف فوراً</string>
+    <string name="catalog_admin_invalid_category">أدخل اسماً ومعرّفاً صالحين. الحد الأقصى للاسم 100 حرف.</string>
+    <string name="catalog_admin_create_category">حفظ التصنيف</string>
+    <string name="catalog_admin_add_product">إضافة منتج</string>
+    <string name="catalog_admin_no_categories">أنشئ تصنيفاً مفعلاً أولاً.</string>
+    <string name="catalog_admin_product_category">تصنيف المنتج</string>
+    <string name="catalog_admin_product_name">اسم المنتج</string>
+    <string name="catalog_admin_image_key">مفتاح صورة R2 (اختياري)</string>
+    <string name="catalog_admin_image_key_hint">أدخل مفتاح كائن موجوداً؛ رفع الصور غير متاح هنا.</string>
+    <string name="catalog_admin_variants">الأحجام والأسعار</string>
+    <string name="catalog_admin_add_variant">إضافة حجم</string>
+    <string name="catalog_admin_publish_now">نشر المنتج وتفعيل أحجامه الآن</string>
+    <string name="catalog_admin_invalid_product">أدخل منتجاً صالحاً وتصنيفاً وحجماً واحداً على الأقل بسعر ووزن صحيحين.</string>
+    <string name="catalog_admin_create_product">حفظ المنتج والأحجام</string>
+    <string name="catalog_admin_variant_number">الحجم %1$d</string>
+    <string name="catalog_admin_remove_variant">حذف الحجم</string>
+    <string name="catalog_admin_variant_name">اسم الحجم</string>
+    <string name="catalog_admin_weight_grams">الوزن بالجرام</string>
+    <string name="catalog_admin_price_egp">السعر بالجنيه المصري</string>
+    <string name="catalog_admin_category_created">تم حفظ التصنيف.</string>
+    <string name="catalog_admin_product_created">تم حفظ المنتج وأحجامه.</string>
+    <string name="catalog_admin_load_error">تعذر التحقق من صلاحية إدارة الكتالوج أو تحميل التصنيفات.</string>
+    <string name="catalog_admin_write_error">تعذر الحفظ. تحقق من الصلاحية والبيانات ثم حاول مجدداً.</string>
+    <string name="catalog_admin_access_denied">لا تملك صلاحية إدارة الكتالوج.</string>
+    <string name="catalog_admin_menu">إدارة المنتجات</string>
+</resources>

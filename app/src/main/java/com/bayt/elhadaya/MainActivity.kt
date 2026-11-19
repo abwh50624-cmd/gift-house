@@ -39,7 +39,11 @@ import androidx.lifecycle.lifecycleScope
 import com.bayt.elhadaya.data.auth.AuthRepository
 import com.bayt.elhadaya.data.auth.BackendConfiguration
 import com.bayt.elhadaya.data.auth.SupabaseBackend
+import com.bayt.elhadaya.data.catalog.AdminCatalogCategory
+import com.bayt.elhadaya.data.catalog.CatalogAdminRole
+import com.bayt.elhadaya.data.catalog.CatalogCategoryCreation
 import com.bayt.elhadaya.data.catalog.CatalogRepository
+import com.bayt.elhadaya.data.catalog.CatalogProductCreation
 import com.bayt.elhadaya.data.checkout.CartLine
 import com.bayt.elhadaya.data.checkout.CheckoutReceipt
 import com.bayt.elhadaya.data.checkout.CheckoutRepository
@@ -54,6 +58,7 @@ import com.bayt.elhadaya.data.support.SupportMessage
 import com.bayt.elhadaya.data.support.SupportRepository
 import com.bayt.elhadaya.ui.auth.AuthScreen
 import com.bayt.elhadaya.ui.auth.SocialSignInProvider
+import com.bayt.elhadaya.ui.admin.AdminCatalogScreen
 import com.bayt.elhadaya.ui.checkout.CartScreen
 import com.bayt.elhadaya.ui.components.LuxuryBottomNav
 import com.bayt.elhadaya.ui.components.AppDrawer
@@ -77,6 +82,7 @@ import io.github.jan.supabase.exceptions.HttpRequestException
 import io.github.jan.supabase.exceptions.RestException
 import io.ktor.client.plugins.HttpRequestTimeoutException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.decodeFromString
@@ -91,6 +97,16 @@ class MainActivity : ComponentActivity() {
     private var supabaseClient: SupabaseClient? = null
     private var authRepository: AuthRepository? = null
     private var catalogRepository: CatalogRepository? = null
+    private var catalogAdminRole by mutableStateOf<CatalogAdminRole?>(null)
+    private var catalogAdminCategories by mutableStateOf<List<AdminCatalogCategory>>(emptyList())
+    private var catalogAdminLoading by mutableStateOf(false)
+    private var catalogAdminSubmitting by mutableStateOf(false)
+    private var catalogAdminError by mutableStateOf<String?>(null)
+    private var catalogAdminSuccess by mutableStateOf<String?>(null)
+    private var catalogAdminCategoryCreationRevision by mutableStateOf(0)
+    private var catalogAdminProductCreationRevision by mutableStateOf(0)
+    private var catalogAdminUserId: String? = null
+    private var catalogAdminJob: Job? = null
     private var checkoutRepository: CheckoutRepository? = null
     private var supportRepository: SupportRepository? = null
     private var customerOrdersRepository: CustomerOrdersRepository? = null
@@ -199,6 +215,28 @@ class MainActivity : ComponentActivity() {
                     NotificationsScreen(onBack = { selectedNavigationItem = "المتجر" })
                 } else if (selectedNavigationItem == "الإعدادات") {
                     SettingsScreen(onBack = { selectedNavigationItem = "المتجر" })
+                } else if (selectedNavigationItem == "إدارة المنتجات") {
+                    val role = catalogAdminRole
+                    if (isAuthenticated && role != null) {
+                        AdminCatalogScreen(
+                            role = role,
+                            categories = catalogAdminCategories,
+                            isLoading = catalogAdminLoading,
+                            isSubmitting = catalogAdminSubmitting,
+                            errorMessage = catalogAdminError,
+                            successMessage = catalogAdminSuccess,
+                            categoryCreationRevision = catalogAdminCategoryCreationRevision,
+                            productCreationRevision = catalogAdminProductCreationRevision,
+                            onBack = { selectedNavigationItem = "المتجر" },
+                            onRetry = ::loadAdminCatalogCategories,
+                            onCreateCategory = ::createAdminCatalogCategory,
+                            onCreateProduct = ::createAdminCatalogProduct,
+                        )
+                    } else {
+                        CatalogAdminAccessDenied(
+                            onBack = { selectedNavigationItem = "المتجر" },
+                        )
+                    }
                 } else if (selectedNavigationItem == "طلباتي" || selectedNavigationItem == "المرتجعات") {
                     CustomerOrdersScreen(
                         returnMode = selectedNavigationItem == "المرتجعات",
@@ -300,6 +338,7 @@ class MainActivity : ComponentActivity() {
                         selectedPrimaryCategoryId = selectedPrimaryCategoryId,
                         selectedCategoryId = selectedCategoryId,
                         unreadNotifications = unreadNotifications,
+                        canManageCatalog = isAuthenticated && catalogAdminRole != null,
                         onPrimaryCategorySelected = {
                             selectedPrimaryCategoryId = it
                             if (it == null) selectedCategoryId = null
@@ -315,6 +354,9 @@ class MainActivity : ComponentActivity() {
                         onNotificationsSelected = {
                             unreadNotifications = 0
                             selectedNavigationItem = "الإشعارات"
+                        },
+                        onCatalogAdminSelected = {
+                            selectNavigationItem("إدارة المنتجات")
                         },
                         onDrawerSelected = { drawerScope.launch { drawerState.open() } },
                         onRetry = ::loadCatalog,
@@ -376,6 +418,12 @@ class MainActivity : ComponentActivity() {
                         sessionInitializing = false
                         isAuthenticated = true
                         accountEmail = status.session.user?.email
+                        val userId = status.session.user?.id
+                        if (userId == null) {
+                            clearCatalogAdminAccess()
+                        } else {
+                            loadCatalogAdminAccess(userId)
+                        }
                         authError = null
                         authMessage = null
                         pendingVerificationEmail = null
@@ -384,14 +432,193 @@ class MainActivity : ComponentActivity() {
                         sessionInitializing = false
                         isAuthenticated = false
                         accountEmail = null
+                        clearCatalogAdminAccess()
                     }
                     is SessionStatus.RefreshFailure -> {
                         sessionInitializing = false
                         isAuthenticated = false
                         accountEmail = null
+                        clearCatalogAdminAccess()
                         authError = getString(R.string.auth_error)
                     }
                 }
+            }
+        }
+    }
+
+    private fun loadCatalogAdminAccess(userId: String) {
+        if (catalogAdminUserId == userId) return
+
+        catalogAdminJob?.cancel()
+        catalogAdminUserId = userId
+        catalogAdminRole = null
+        catalogAdminCategories = emptyList()
+        catalogAdminLoading = true
+        catalogAdminError = null
+        catalogAdminJob = lifecycleScope.launch {
+            try {
+                val repository = checkNotNull(catalogRepository)
+                catalogAdminRole = repository.loadAdminRole(userId)
+                if (catalogAdminRole != null) {
+                    catalogAdminCategories = repository.loadAdminCategories()
+                }
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: HttpRequestTimeoutException) {
+                catalogAdminRole = null
+                catalogAdminError = getString(R.string.catalog_admin_load_error)
+            } catch (_: HttpRequestException) {
+                catalogAdminRole = null
+                catalogAdminError = getString(R.string.catalog_admin_load_error)
+            } catch (_: RestException) {
+                catalogAdminRole = null
+                catalogAdminError = getString(R.string.catalog_admin_load_error)
+            } catch (_: SerializationException) {
+                catalogAdminRole = null
+                catalogAdminError = getString(R.string.catalog_admin_load_error)
+            } catch (_: IllegalArgumentException) {
+                catalogAdminRole = null
+                catalogAdminError = getString(R.string.catalog_admin_load_error)
+            } catch (_: IllegalStateException) {
+                catalogAdminRole = null
+                catalogAdminError = getString(R.string.catalog_admin_load_error)
+            } catch (_: IOException) {
+                catalogAdminRole = null
+                catalogAdminError = getString(R.string.catalog_admin_load_error)
+            } finally {
+                catalogAdminLoading = false
+            }
+        }
+    }
+
+    private fun clearCatalogAdminAccess() {
+        catalogAdminJob?.cancel()
+        catalogAdminJob = null
+        catalogAdminUserId = null
+        catalogAdminRole = null
+        catalogAdminCategories = emptyList()
+        catalogAdminLoading = false
+        catalogAdminSubmitting = false
+        catalogAdminError = null
+        catalogAdminSuccess = null
+        if (selectedNavigationItem == "إدارة المنتجات") {
+            selectedNavigationItem = "المتجر"
+        }
+    }
+
+    private fun loadAdminCatalogCategories() {
+        val repository = catalogRepository
+        if (!isAuthenticated || catalogAdminRole == null || repository == null) {
+            catalogAdminError = getString(R.string.catalog_admin_access_denied)
+            return
+        }
+
+        lifecycleScope.launch {
+            catalogAdminLoading = true
+            catalogAdminError = null
+            try {
+                catalogAdminCategories = repository.loadAdminCategories()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: HttpRequestTimeoutException) {
+                catalogAdminError = getString(R.string.catalog_admin_load_error)
+            } catch (_: HttpRequestException) {
+                catalogAdminError = getString(R.string.catalog_admin_load_error)
+            } catch (_: RestException) {
+                catalogAdminError = getString(R.string.catalog_admin_load_error)
+            } catch (_: SerializationException) {
+                catalogAdminError = getString(R.string.catalog_admin_load_error)
+            } catch (_: IllegalArgumentException) {
+                catalogAdminError = getString(R.string.catalog_admin_load_error)
+            } catch (_: IllegalStateException) {
+                catalogAdminError = getString(R.string.catalog_admin_load_error)
+            } catch (_: IOException) {
+                catalogAdminError = getString(R.string.catalog_admin_load_error)
+            } finally {
+                catalogAdminLoading = false
+            }
+        }
+    }
+
+    private fun createAdminCatalogCategory(category: CatalogCategoryCreation) {
+        if (!isAuthenticated || catalogAdminRole != CatalogAdminRole.SUPER_ADMIN) {
+            catalogAdminError = getString(R.string.catalog_admin_access_denied)
+            return
+        }
+        val repository = catalogRepository ?: run {
+            catalogAdminError = configurationMessage()
+            return
+        }
+
+        lifecycleScope.launch {
+            catalogAdminSubmitting = true
+            catalogAdminError = null
+            catalogAdminSuccess = null
+            try {
+                repository.createCategory(category)
+                catalogAdminSuccess = getString(R.string.catalog_admin_category_created)
+                catalogAdminCategoryCreationRevision++
+                loadAdminCatalogCategories()
+                loadCatalog()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: HttpRequestTimeoutException) {
+                catalogAdminError = getString(R.string.catalog_admin_write_error)
+            } catch (_: HttpRequestException) {
+                catalogAdminError = getString(R.string.catalog_admin_write_error)
+            } catch (_: RestException) {
+                catalogAdminError = getString(R.string.catalog_admin_write_error)
+            } catch (_: SerializationException) {
+                catalogAdminError = getString(R.string.catalog_admin_write_error)
+            } catch (_: IllegalArgumentException) {
+                catalogAdminError = getString(R.string.catalog_admin_write_error)
+            } catch (_: IllegalStateException) {
+                catalogAdminError = getString(R.string.catalog_admin_write_error)
+            } catch (_: IOException) {
+                catalogAdminError = getString(R.string.catalog_admin_write_error)
+            } finally {
+                catalogAdminSubmitting = false
+            }
+        }
+    }
+
+    private fun createAdminCatalogProduct(product: CatalogProductCreation) {
+        if (!isAuthenticated || catalogAdminRole == null) {
+            catalogAdminError = getString(R.string.catalog_admin_access_denied)
+            return
+        }
+        val repository = catalogRepository ?: run {
+            catalogAdminError = configurationMessage()
+            return
+        }
+
+        lifecycleScope.launch {
+            catalogAdminSubmitting = true
+            catalogAdminError = null
+            catalogAdminSuccess = null
+            try {
+                repository.createProduct(product)
+                catalogAdminSuccess = getString(R.string.catalog_admin_product_created)
+                catalogAdminProductCreationRevision++
+                loadCatalog()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: HttpRequestTimeoutException) {
+                catalogAdminError = getString(R.string.catalog_admin_write_error)
+            } catch (_: HttpRequestException) {
+                catalogAdminError = getString(R.string.catalog_admin_write_error)
+            } catch (_: RestException) {
+                catalogAdminError = getString(R.string.catalog_admin_write_error)
+            } catch (_: SerializationException) {
+                catalogAdminError = getString(R.string.catalog_admin_write_error)
+            } catch (_: IllegalArgumentException) {
+                catalogAdminError = getString(R.string.catalog_admin_write_error)
+            } catch (_: IllegalStateException) {
+                catalogAdminError = getString(R.string.catalog_admin_write_error)
+            } catch (_: IOException) {
+                catalogAdminError = getString(R.string.catalog_admin_write_error)
+            } finally {
+                catalogAdminSubmitting = false
             }
         }
     }
@@ -520,10 +747,21 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun selectNavigationItem(item: String) {
+        if (item == "إدارة المنتجات" &&
+            (!isAuthenticated || catalogAdminRole == null)
+        ) {
+            return
+        }
         if (item in setOf("المتجر", "حسابي", "السلة", "مساعد ذكي", "الإشعارات", "طلباتي", "المرتجعات")) {
             selectedNavigationItem = item
             if (item == "مساعد ذكي") selectedNavigationItem = "المساعد الذكي"
             if (item != "المتجر") selectedProductId = null
+        }
+        if (item == "إدارة المنتجات") {
+            selectedNavigationItem = item
+            selectedProductId = null
+            catalogAdminError = null
+            catalogAdminSuccess = null
         }
     }
 
@@ -1049,6 +1287,20 @@ class MainActivity : ComponentActivity() {
         const val STATE_CHECKOUT_LANDMARK = "checkout.landmark"
         const val STATE_CHECKOUT_LATITUDE = "checkout.latitude"
         const val STATE_CHECKOUT_LONGITUDE = "checkout.longitude"
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun CatalogAdminAccessDenied(onBack: () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(stringResource(R.string.catalog_admin_access_denied))
+        Button(onClick = onBack) {
+            Text(stringResource(R.string.back))
+        }
     }
 }
 

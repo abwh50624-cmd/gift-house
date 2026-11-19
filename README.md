@@ -63,6 +63,19 @@ browsing remains governed by the catalog RLS policies. Provider availability
 and remote credentials are environment configuration and are not asserted by
 the local build.
 
+Authenticated `ADMIN` and `SUPER_ADMIN` users can open the catalog creation
+screen from the store. Category inserts remain restricted by RLS to
+`SUPER_ADMIN`; product and variant creation is performed atomically by the
+`SECURITY INVOKER` RPC `create_catalog_product_with_variants`, which continues
+to enforce the existing product and variant RLS policies. Customers cannot
+execute the product-creation RPC. New categories are inactive and products
+remain drafts with inactive variants unless the operator explicitly activates
+or publishes them. The optional image field accepts only an existing R2 object
+key; image upload, stock management, and catalog editing are not implemented
+by this screen. Apply migration
+[`20261119000000_catalog_admin_creation.sql`](supabase/migrations/20261119000000_catalog_admin_creation.sql)
+to a project before using the product-creation flow there.
+
 The Android client also includes product details, a local cart, shipping-region
 and prepaid-method selection, and a call to the server checkout RPC. These are
 initial implementations, not phase-acceptance or production-readiness claims:

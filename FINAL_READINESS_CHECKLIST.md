@@ -14,10 +14,13 @@ verified; the local pgTAP run has a failing checkout test; and Android tests
 and APK builds could not run because the Android SDK is unavailable.
 
 The production Supabase review recorded below was read-only before this task.
-On 2026-11-19, this task deployed only the sandbox `payment-webhook` Edge
-Function to project `wkhbxljqaywprplpadve`; no remote schema, migrations, data,
-Auth configuration, or secrets were changed. The function remains fail-closed
-until `SANDBOX_WEBHOOK_SECRET` is provisioned. No provider secret values are
+The sandbox `payment-webhook` is active on project `wkhbxljqaywprplpadve`.
+This task applied only additive migration
+`20261119000000_catalog_admin_creation.sql`, adding an authenticated,
+`SECURITY INVOKER` product-and-variants RPC that remains subject to existing
+RLS. No production catalog data, user roles, Auth settings, or secrets were
+changed. The payment function remains fail-closed until
+`SANDBOX_WEBHOOK_SECRET` is provisioned. No provider secret values are
 included in this report.
 
 ## Scope, specification basis, and limits
@@ -38,7 +41,7 @@ Documents found and examined:
 
 **The repository does not contain an authoritative, enumerated 12-phase
 roadmap or acceptance criteria for phases 1–6 and 11–12.** README and
-`architecture.md` explicitly label phases 7–10 only. The repository has 13
+`architecture.md` explicitly label phases 7–10 only. The repository has 14
 SQL migration files; mapping those files to the missing phase list would be
 guesswork. Consequently, the 12-phase acceptance claim cannot be certified
 until the approved phase document is supplied or added. The phase evidence
@@ -54,12 +57,13 @@ flow, and an unused gold button.
 
 | Area | Verified result |
 |---|---|
-| Remote migration history | All 13 local migration versions match the linked production migration history. A read-only schema dump contains the current public/private tables and RLS declarations. |
-| Migration timestamps | No duplicate local migration version exists. A fresh local database applied all 13 migrations successfully. |
+| Remote migration history | All 14 local migration versions match the linked production migration history. The new additive catalog-creation migration was applied after local pgTAP verification. |
+| Migration timestamps | No duplicate local migration version exists. The local stack applied the pending migration successfully; the full database suite passes against the resulting schema. |
 | Remote Auth | Email is enabled; signup is enabled and email auto-confirm is off. Google, Facebook, and phone providers are disabled. |
 | Remote catalog | Guest-visible `categories`, `products`, and `product_variants` each return **0 rows**. The production storefront therefore has no catalog content. |
 | Remote shipping data | **12 active** `shipping_regions` rows exist: 6 BOSTA and 6 EGYPTIAN_POST. These are broad seeded regions, not a verified governorate/center/village tariff table. |
-| Deployed Supabase Edge Functions | `ai-concierge`, `r2-presign`, `shipping-rates`, and `payment-webhook` are listed active. The sandbox-only `payment-webhook` was deployed by this task and returns 503 until its signing secret is provisioned. |
+| Deployed Supabase Edge Functions | `ai-concierge`, `r2-presign`, `shipping-rates`, and `payment-webhook` are listed active. The sandbox-only `payment-webhook` returns 503 until its signing secret is provisioned. |
+| Catalog creation RPC | `create_catalog_product_with_variants` is deployed, executable only by `authenticated`, and is `SECURITY INVOKER`; local pgTAP tests verify role checks and RLS behavior. |
 | External runtime configuration | The remote secret-name inventory does not include Gemini, R2, sandbox payment webhook, Bosta, or Egyptian Post credentials. Their live operation is not configured/verified. |
 | Supabase RLS/schema boundary | The remote schema dump shows forced RLS on the reviewed business tables; `private` is not in the local exposed API schemas. This is not a substitute for role-by-role production access tests. |
 | Supplier Worker | Source and mocked tests exist. No Cloudflare deployment or Telegram webhook registration was verified. |
@@ -67,8 +71,10 @@ flow, and an unused gold button.
 
 ### Completed and verified (100% within these bounded checks)
 
-- All 13 current migration files apply successfully to a fresh local database,
-  and their versions match the linked production migration history.
+- All 14 current migration versions match the linked production migration
+  history; the newly added migration applied locally and remotely.
+- The complete local pgTAP suite passes **233/233**, including nine focused
+  catalog-creation authorization and lifecycle checks.
 - The Node Worker/adapter suite passes 13/13 tests; the Deno payment adapter
   suite passes 3/3 tests.
 - Production Auth flags, deployed Edge Function names, guest-visible catalog
@@ -77,6 +83,8 @@ flow, and an unused gold button.
 - `payment-webhook` is active on the linked production project; a GET request
   returned the expected 405 response. The endpoint has no configured sandbox
   signing secret and is intentionally unavailable for event processing.
+- The remote catalog RPC is confirmed as invoker-security, callable by
+  `authenticated` and not executable by `anon`.
 - The implemented Android email/OAuth call paths, PKCE callback, encrypted
   Auth state, category drill-down, checkout address fields, and order list were
   confirmed in source.
@@ -93,7 +101,7 @@ Statuses refer to production acceptance, not merely the existence of source.
 | **1. Infrastructure, security, CI/CD, recovery, media, client storage** | Private ledger/inventory foundations, forced RLS, explicit grants, pinned GitHub Actions, and a Gitleaks CI job are present. Auth session and PKCE verifier storage use AES-GCM with an Android Keystore key. | **Partial.** No SQLCipher local database/cart implementation is present. The R2 code supports public media URLs and has no signed read flow; the architecture requires private objects and short-lived authorized reads. Image flows permit up to 10 MB, not the specified 50 KB. PITR, restore drills, APK scanning, and a Gitleaks run were not verified. CI has no OIDC/deployment flow. |
 | **2. Identity, access, customer account** | Android has email/password, email signup-code verification/resend, Google/Facebook OAuth calls, PKCE, deep-link callback, encrypted session persistence, order/return shortcuts, and sign-out. Production email is enabled with auto-confirm off. | **Fail for release.** Google and Facebook are disabled in production Auth; phone Auth is disabled and no phone sign-in/OTP flow exists. The app has no profile/phone editing or loyalty dashboard. The configured callback allow-list was not verified. |
 | **3. Finance, payments, sourcing window, refunds** | Database has separate order/payment/sourcing states, integer-minor-unit ledger, idempotency/outbox foundations, atomic checkout/reservation, sandbox intents, and a signed sandbox webhook implementation. Database tests cover many authorization/ledger cases. | **Partial; no real collection.** Android creates only a sandbox payment intent; no live payment adapter/capture is wired. The sandbox webhook is deployed but its signing secret is absent, so it fails closed. Reservation expiry has a database function but no verified scheduler. Refund processing is sandbox/database-level; legal timing and same-method gateway refund are not demonstrated. |
-| **4. Catalog, navigation, inventory, immutable snapshots** | Guest catalog queries, category/subcategory drill-down, product/variant details, weight/price display, local cart, server-side checkout revalidation, snapshot and inventory foundations exist. DB roles allow authorized admin writes to catalog entities. | **Fail for release.** Production category/product/variant tables are empty. No Android admin catalog-ingestion screen/repository exists. Telegram intake is supplier data, not product publishing. There is no verified secure product-image administration path or stock seed. Cart state is held in Activity state/saved instance state, not a durable encrypted SQLCipher store. |
+| **4. Catalog, navigation, inventory, immutable snapshots** | Guest catalog queries, category/subcategory drill-down, product/variant details, weight/price display, local cart, server-side checkout revalidation, snapshot/inventory foundations, and an authenticated admin create flow exist. Super admins create categories under existing RLS; admins/super admins atomically create products and variants through a `SECURITY INVOKER` RPC. | **Fail for release.** Production categories/products/variants remain empty. There is no stock-management or image-upload workflow, and the optional image field only references an existing R2 object. Cart state is held in Activity state/saved instance state, not a durable encrypted SQLCipher store. |
 | **5. Shipping and geographic delivery** | Production has 12 active broad-region rates. Checkout collects governorate, street, landmark, and optional coordinates; the database persists addresses and validates coordinate ranges. Shipping lifecycle and sandbox tracking RPCs exist. | **Partial.** Coordinates are manually typed; manifest permissions exist but there is no location picker/GPS acquisition, geocoder, or governorate hierarchy. Adapter quote methods return configured database rates rather than calling provider quote APIs. Live shipment creation is conditional on credentials that are not configured/verified. No verified live provider callback signatures or labels exist. Android only displays `shipping_status`; it does not call the tracking RPC or display a tracking number. |
 | **6. AI concierge, internal messaging, complaints** | Authenticated Android text/image chat calls active `ai-concierge` and `r2-presign` functions; support-thread/message RPCs, polling, AI audit records, and sandbox/Gemini adapters exist. | **Partial / not live.** `GEMINI_API_KEY` and R2 credentials are not configured in the remote secret inventory. The AI entrypoint uses a service-role backend mediation path; this requires explicit review against the spec’s isolation and least-privilege requirements. No admin support console is present. Notification content is static and the badge starts at a hard-coded count rather than tracking unread messages. Return/chat does not require the specified product-and-invoice image evidence. |
 | **7. Loyalty, referrals, legal compliance** | Loyalty/referral/legal schema and RPCs are present with a pgTAP suite; return-request screens and repository calls exist. | **Partial.** No Android loyalty balance, referral registration, referral link, phone-OTP qualification, or customer-facing rewards lifecycle is present. Refund amount entry is user-editable in the UI; the label uses “dirhams” rather than EGP. Actual legal terms, statutory timelines, registration documents, and Egyptian legal/privacy review are not evidenced and cannot be certified by code inspection. |
@@ -104,7 +112,7 @@ Statuses refer to production acceptance, not merely the existence of source.
 | Flow | Present | Missing / release gate |
 |---|---|---|
 | Email and social authentication | Email/password and code flows; Google/Facebook SDK-level OAuth calls and callback handling are wired in Android. | Production Google/Facebook toggles are false; phone Auth is false and has no Android flow. Configure providers, redirect allow-list and credentials, then test on-device. |
-| Product/category/variant/image addition | Database admin policies; Supabase dashboard/API can be used by a correctly authorized operator. Telegram worker records supplier availability/media separately. | No Android admin add/edit workflow is present, and no explicit operational dashboard runbook was found. Telegram does not publish products. Live public catalog is empty. Establish an audited product/variant/image publishing workflow and seed/verify the live catalog. |
+| Product/category/variant/image addition | An authenticated Android screen creates categories (super-admin only) and products with one or more variants (admin/super-admin). The product RPC is atomic and invokes existing RLS as the caller. Telegram worker records supplier availability/media separately. | The live public catalog is still empty. Image upload, stock management, editing, and an operational catalog runbook remain outstanding; seed and verify live products before release. |
 | Browse to checkout | Category hierarchy, product details, local cart, shipping-region selection, address form, terms acceptance, and authenticated checkout RPC are wired. | The live catalog is empty. Payment is sandbox-only and remains payment-pending. No durable encrypted cart. Address GPS is manual coordinate entry, not GPS. |
 | Shipping and tracking | Region/rate selection and address snapshot are implemented; database has sandbox shipment/tracking lifecycle. | No live quote API, verified provider credentials, signed live callback, label flow, Android shipment creation, or tracking-number UI. |
 | AI and support | Authenticated chat, support threads, text and image upload code paths exist. | Missing Gemini/R2 secrets, no admin support UI, static notification badge, and production media privacy/size controls do not meet the written spec. |
@@ -124,14 +132,14 @@ Statuses refer to production acceptance, not merely the existence of source.
 
 | Suite | Inventory | Result |
 |---|---|---|
-| Supabase pgTAP | 11 SQL files; 224 declared assertions. | Local migrations applied. **FAIL:** 10 files pass; `checkout.test.sql` fails at “cash on delivery is rejected by the server.” The test calls a stale `create_checkout_order` signature and receives SQLSTATE `42883` (function does not exist) instead of expected `22023` (unsupported prepaid method); the remaining assertions in that file do not run. Overall: 217 assertions executed, one failure, planned total not reached. |
+| Supabase pgTAP | 12 SQL files; 233 declared assertions. | **PASS: 233/233** on the current local schema, including the new customer/admin/super-admin catalog-write checks. |
 | Node Worker/adapter tests | 3 files: supplier Telegram (8), shipping provider (3), AI concierge (2). | **PASS: 13/13.** These use mocked/local behavior, not deployed provider integrations. |
 | Deno payment adapter | 1 file, 3 tests. | **PASS: 3/3** using transient Deno tooling. This suite is not included in the repository CI workflow. |
 | Android JVM/JUnit | 2 test files, 4 `@Test` cases. | **BLOCKED.** `./gradlew testDebugUnitTest` fails before compilation: no configured Android SDK (`ANDROID_HOME`/`sdk.dir`); SDK Platform 37 is unavailable. |
 | Android UI/instrumentation | No `app/src/androidTest` tests found. | **Not implemented.** |
 | APK build/lint/release | CI defines `check assembleDebug lint`; no signed release build/E2E job is present. | **Not run locally** for the same missing-SDK blocker. |
 | Gitleaks | Pinned Gitleaks job is configured in CI. | **Not run in this audit:** authorization to install/run the scanner was declined. No scan result is asserted. |
-| Remote E2E/integration | No automated production/staging E2E suite found. | **Not run.** Read-only production checks covered migration versions, Auth feature flags, deployed function names, and aggregate guest-visible catalog/rate counts only. |
+| Remote E2E/integration | No automated production/staging E2E suite found. | **Not run.** Remote checks confirmed migration versions, function deployment, and RPC ACL/security mode. No production catalog records were created and no real admin-device flow was exercised. |
 
 ### CI coverage gap
 
@@ -176,17 +184,19 @@ accounts/orders and sandbox provider accounts until live-provider certification.
 - [ ] Obtain/add the approved 12-phase acceptance specification; map each
   criterion to code, deployment configuration, and test evidence. Do not certify
   missing phase definitions.
-- [ ] Repair `checkout.test.sql` to call the current address-aware
-  `create_checkout_order` signature; run all 11 pgTAP files to a clean
-  224/224 result.
+- [x] `checkout.test.sql` uses the current address-aware
+  `create_checkout_order` signature; all 12 pgTAP files pass 233/233.
 - [ ] Populate and verify production categories, published products, active
   variants, images, and inventory. Confirm anon reads and admin-only writes.
 - [ ] Enable and configure Google and Facebook providers, callback allow-list,
   and real device OAuth tests. Decide whether phone OTP is required for sign-in
   or only referral qualification; implement/configure the required path.
-- [ ] Implement and document a restricted admin ingestion path for categories,
-  products, variants, stock, and catalog images. Keep supplier submissions
-  separate until an authorized maker-checker publication step.
+- [x] Add an authenticated Android category/product/variant creation flow:
+  category writes are super-admin-only, and product plus variant writes use an
+  atomic `SECURITY INVOKER` RPC under the existing RLS policies.
+- [ ] Complete stock management, catalog image upload, editing, and the
+  operational runbook. Keep supplier submissions separate until an authorized
+  maker-checker publication step.
 - [ ] Choose/configure the real payment provider, implement its official
   signature verification and event normalization, and add sandbox E2E tests.
   The sandbox-only `payment-webhook` deployment is complete, but it returns

@@ -1,0 +1,8 @@
+# Bayt El-Hadaya Guardrails
+- NEVER expose, log, or commit secrets, API keys, or .env files.
+- NEVER bypass Supabase RLS policies or weaken role isolation (Admin / Super-Admin vs regular users).
+- Keep payment-webhook strictly fail-closed until production secrets/config are explicitly provided.
+- Keep supplier bot data and Cloudflare R2 media restricted to authorized Admin / Super-Admin roles.
+- Only read and edit files directly relevant to the current task; leave unrelated pre-existing worktree changes untouched.
+- Do NOT run heavy local Gradle builds inside Codespaces; rely on targeted file edits, git diff review, and lightweight checks.
+- Always summarize completed changes, wired integrations, and remaining external dependencies in clear Arabic.

@@ -6,10 +6,8 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -98,7 +96,8 @@ fun ProductDetailsScreen(
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 item {
-                    details.imageObjectKey?.let(resolveR2PublicUrl)?.let { imageUrl ->
+                    val imageUrl = details.imageObjectKey?.let(resolveR2PublicUrl)
+                    if (imageUrl != null) {
                         AsyncImage(
                             model = imageUrl,
                             contentDescription = details.name,
@@ -109,9 +108,11 @@ fun ProductDetailsScreen(
                         )
                     }
                     Text(details.name, style = MaterialTheme.typography.headlineSmall)
-                    details.description?.takeIf(String::isNotBlank)?.let {
+                    
+                    val description = details.description
+                    if (!description.isNullOrBlank()) {
                         Text(
-                            it,
+                            description,
                             color = LuxuryPalette.SecondaryText,
                             modifier = Modifier.padding(top = 8.dp),
                         )

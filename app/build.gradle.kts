@@ -19,7 +19,7 @@ val supabasePublishableKey = providers.gradleProperty("supabasePublishableKey")
     .getOrElse(productionSupabasePublishableKey)
 val r2PublicBaseUrl = providers.gradleProperty("r2PublicBaseUrl")
     .orElse(providers.environmentVariable("R2_PUBLIC_BASE_URL").orElse("https://wkhbxljqaymprplpadve.supabase.co/storage/v1/object/public/gift-house-media"))
-    .getOrElse("")
+    .get()
 
 android {
     namespace = "com.bayt.elhadaya"

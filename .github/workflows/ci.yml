@@ -47,6 +47,8 @@ jobs:
 
       - name: Start local Supabase and test migrations
         run: |
+          docker stop $(docker ps -q --filter "publish=54322") || true
+          supabase stop || true
           supabase start
           supabase db reset
           supabase test db

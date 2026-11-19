@@ -63,6 +63,10 @@ fun AuthScreen(
     var password by remember { mutableStateOf("") }
     var verificationCode by remember { mutableStateOf("") }
     var createAccount by remember { mutableStateOf(false) }
+    var createAccount by remember { mutableStateOf(false) }
+    var termsAccepted by remember { mutableStateOf(false) }
+
+
 
     Scaffold(
         modifier = modifier,
@@ -151,13 +155,35 @@ fun AuthScreen(
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     singleLine = true,
+                Spacer(Modifier.height(16.dp))
+                androidx.compose.foundation.layout.Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                ) {
+                    androidx.compose.material3.Checkbox(
+                        checked = termsAccepted,
+                        onCheckedChange = { termsAccepted = it },
+                        enabled = !busy,
+                    )
+                    Text(
+                        text = stringResource(R.string.auth_terms_consent),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+
                     enabled = !busy,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(16.dp))
                 Button(
-                    onClick = { onSubmitEmail(email, password, createAccount) },
-                    enabled = !busy && email.isNotBlank() && password.isNotBlank(),
+                    onClick = {
+                        if (termsAccepted) {
+                            onSubmitEmail(email, password, createAccount)
+                        } else {
+                            // TODO: Add error handling for terms not accepted
+                        }
+                    },
+                    enabled = !busy && email.isNotBlank() && password.isNotBlank() && (termsAccepted || !createAccount),
                     modifier = Modifier.fillMaxWidth(),
                     contentPadding = PaddingValues(vertical = 14.dp),
                 ) {

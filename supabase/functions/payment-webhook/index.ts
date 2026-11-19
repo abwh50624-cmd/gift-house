@@ -74,6 +74,14 @@ Deno.serve(async (request) => {
   const backendUrl = Deno.env.get("SUPABASE_URL") ?? "";
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
   const webhookSecret = Deno.env.get("SANDBOX_WEBHOOK_SECRET") ?? "";
+  const isProduction = Deno.env.get("ENVIRONMENT") === "production";
+  
+  if (isProduction) {
+    // Fail-closed for production until production secrets/config are explicitly provided
+    console.error("payment webhook: production configuration missing");
+    return jsonResponse(503, { error: "webhook_unavailable" });
+  }
+
   if (
     !isAllowedBackendUrl(backendUrl) ||
     serviceRoleKey.length === 0 ||

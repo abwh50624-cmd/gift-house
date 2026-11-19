@@ -8,8 +8,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.Box
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material3.Icon
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -32,7 +39,7 @@ private data class LuxuryNavigationItem(
 private val luxuryNavigationItems = listOf(
     LuxuryNavigationItem("السلة", Icons.Filled.ShoppingCart),
     LuxuryNavigationItem("المتجر", Icons.Filled.ShoppingCart),
-    LuxuryNavigationItem("طلباتي", Icons.AutoMirrored.Filled.List),
+    LuxuryNavigationItem("مساعد ذكي", Icons.Filled.AutoAwesome),
     LuxuryNavigationItem("المفضلة", Icons.Filled.Favorite),
     LuxuryNavigationItem("حسابي", Icons.Filled.Person),
 )
@@ -41,6 +48,7 @@ private val luxuryNavigationItems = listOf(
 fun LuxuryBottomNav(
     selectedItem: String,
     onItemSelected: (String) -> Unit,
+    onAiSelected: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val shape = MaterialTheme.shapes.large
@@ -78,6 +86,31 @@ fun LuxuryBottomNav(
             contentColor = MaterialTheme.colorScheme.onSurface,
         ) {
             luxuryNavigationItems.forEach { item ->
+                if (item.label == "مساعد ذكي") {
+                    NavigationBarItem(
+                        selected = false,
+                        onClick = { onAiSelected?.invoke() ?: onItemSelected("مساعد ذكي") },
+                        icon = {
+                            FloatingActionButton(
+                                onClick = { onAiSelected?.invoke() ?: onItemSelected("مساعد ذكي") },
+                                containerColor = LuxuryPalette.RoyalGold,
+                                contentColor = LuxuryPalette.OnGold,
+                                modifier = Modifier.size(56.dp),
+                            ) {
+                                Icon(
+                                    imageVector = item.icon,
+                                    contentDescription = item.label,
+                                )
+                            }
+                        },
+                        label = { Text(text = item.label) },
+                        alwaysShowLabel = true,
+                        colors = NavigationBarItemDefaults.colors(
+                            indicatorColor = Color.Transparent,
+                            unselectedTextColor = LuxuryPalette.LightGold,
+                        ),
+                    )
+                } else {
                 NavigationBarItem(
                     selected = selectedItem == item.label,
                     onClick = { onItemSelected(item.label) },
@@ -97,6 +130,7 @@ fun LuxuryBottomNav(
                         unselectedTextColor = LuxuryPalette.MutedText,
                     ),
                 )
+                }
             }
         }
     }

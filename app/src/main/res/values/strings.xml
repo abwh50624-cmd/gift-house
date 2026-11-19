@@ -4,10 +4,15 @@
     <string name="store_loading">جارٍ تحميل المنتجات</string>
     <string name="store_load_error">تعذر تحميل المتجر. تحقق من اتصالك وحاول مرة أخرى.</string>
     <string name="store_categories">الأقسام</string>
+    <string name="store_primary_categories">الفئات الرئيسية</string>
+    <string name="store_subcategories">الفئات الفرعية</string>
+    <string name="store_products">المنتجات</string>
     <string name="store_all_categories">الكل</string>
     <string name="store_empty">لا توجد منتجات متاحة في هذا القسم حالياً.</string>
     <string name="store_variant_count">%1$d خيارات</string>
     <string name="retry">إعادة المحاولة</string>
+    <string name="drawer_open">فتح القائمة الجانبية</string>
+    <string name="notifications_title">الإشعارات والرسائل</string>
     <string name="account_title">حسابي</string>
     <string name="account_signed_in_as">تم تسجيل الدخول باسم %1$s</string>
     <string name="account_sign_out">تسجيل الخروج</string>
@@ -59,4 +64,7 @@
     <string name="checkout_sandbox_mode">وضع تجريبي فقط: لا يتم تحصيل أي مبلغ حقيقي.</string>
     <string name="checkout_sandbox_reference">مرجع الدفع التجريبي: %1$s</string>
     <string name="checkout_retry_payment_intent">إعادة محاولة إعداد الدفع التجريبي</string>
+    <string name="auth_terms_consent">أوافق على شروط الاستخدام وسياسة الخصوصية الخاصة ببيت الهدايا.</string>
+    <string name="auth_terms_error">يجب الموافقة على الشروط للمتابعة.</string>
+
 </resources>

@@ -28,25 +28,27 @@ Deno.serve(async (request) => {
     });
   }
 
-  let payload: Record<string, unknown>;
-  try {
-    payload = await request.json();
-  } catch {
-    return new Response("Invalid JSON", { status: 400, headers: corsHeaders });
-  }
-
-  const userResponse = await fetch(`${supabaseUrl}/auth/v1/user`, {
+  // Verify auth and get role early
+  const userRoleResponse = await fetch(`${supabaseUrl}/rest/v1/rpc/get_my_role`, {
     headers: {
       apikey: serviceRoleKey,
       Authorization: `Bearer ${token}`,
     },
   });
-  if (!userResponse.ok) {
+  
+  if (!userRoleResponse.ok) {
     return new Response("Unauthorized", { status: 401, headers: corsHeaders });
   }
-  const user = await userResponse.json();
-  if (typeof user?.id !== "string") {
-    return new Response("Unauthorized", { status: 401, headers: corsHeaders });
+  
+  const userRole = await userRoleResponse.json();
+  const isAdmin = userRole === 'ADMIN' || userRole === 'SUPER_ADMIN';
+  const scope = isAdmin ? 'ADMIN' : 'CUSTOMER';
+
+  let payload: Record<string, unknown>;
+  try {
+    payload = await request.json();
+  } catch {
+    return new Response("Invalid JSON", { status: 400, headers: corsHeaders });
   }
 
   const uuidPattern =
@@ -73,29 +75,34 @@ Deno.serve(async (request) => {
 
   try {
     const requestContext = {
-      scope: "CUSTOMER",
+      scope,
       subject,
       message,
       complaintKind:
         typeof complaintKind === "string" ? complaintKind : null,
       orderId: typeof orderId === "string" ? orderId : null,
     };
+
     let catalogContext = "";
-    try {
-      const catalogResponse = await fetch(
-        `${supabaseUrl}/rest/v1/products?select=name,description,image_object_key&status=eq.PUBLISHED&limit=40`,
-        { headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` } },
-      );
-      if (catalogResponse.ok) {
-        const products = await catalogResponse.json();
-        if (Array.isArray(products)) {
-          catalogContext = products
-            .map((product) => `${product.name}${product.description ? ` - ${product.description}` : ""}`)
-            .join("\n");
+    if (isAdmin) {
+      catalogContext = "Admin session active. Accessing full product context.";
+    } else {
+      try {
+        const catalogResponse = await fetch(
+          `${supabaseUrl}/rest/v1/products?select=name,description,image_object_key&status=eq.PUBLISHED&limit=40`,
+          { headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` } },
+        );
+        if (catalogResponse.ok) {
+          const products = await catalogResponse.json();
+          if (Array.isArray(products)) {
+            catalogContext = products
+              .map((product) => `${product.name}${product.description ? ` - ${product.description}` : ""}`)
+              .join("\n");
+          }
         }
+      } catch {
+        catalogContext = "";
       }
-    } catch {
-      catalogContext = "";
     }
     const adapter = new GeminiAiConciergeAdapter(
       geminiApiKey,

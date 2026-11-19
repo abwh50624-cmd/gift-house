@@ -61,7 +61,7 @@ fun AdminCatalogScreen(
     isSubmitting: Boolean,
     errorMessage: String?,
     successMessage: String?,
-خ    categoryCreationRevision: Int,
+    categoryCreationRevision: Int,
     productCreationRevision: Int,
     onBack: () -> Unit,
     onRetry: () -> Unit,

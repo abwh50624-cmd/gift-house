@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { SandboxShippingProviderAdapter } from "./shipping-provider.ts";
+import {
+  BostaShippingProviderAdapter,
+  EgyptianPostShippingProviderAdapter,
+  SandboxShippingProviderAdapter,
+  getShippingProviderAdapter,
+} from "./shipping-provider.ts";
 
 const orderId = "a1000000-0000-0000-0000-000000000001";
 const idempotencyKey = "a2000000-0000-0000-0000-000000000001";

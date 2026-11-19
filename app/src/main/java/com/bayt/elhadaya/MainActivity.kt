@@ -123,6 +123,11 @@ class MainActivity : ComponentActivity() {
     private var checkoutError by mutableStateOf<String?>(null)
     private var checkoutReceipt by mutableStateOf<CheckoutReceipt?>(null)
     private var sandboxPaymentIntent by mutableStateOf<SandboxPaymentIntent?>(null)
+    private var checkoutGovernorate by mutableStateOf("")
+    private var checkoutStreetAddress by mutableStateOf("")
+    private var checkoutLandmark by mutableStateOf("")
+    private var checkoutLatitude by mutableStateOf("")
+    private var checkoutLongitude by mutableStateOf("")
     private var checkoutIdempotencyKey: String? = null
     private var paymentIntentIdempotencyKey: String? = null
     private var checkoutKeyTermsVersion: String? = null
@@ -254,6 +259,11 @@ class MainActivity : ComponentActivity() {
                         checkoutError = checkoutError,
                         receipt = checkoutReceipt,
                         sandboxPaymentIntent = sandboxPaymentIntent,
+                        governorate = checkoutGovernorate,
+                        streetAddress = checkoutStreetAddress,
+                        landmark = checkoutLandmark,
+                        latitude = checkoutLatitude,
+                        longitude = checkoutLongitude,
                         selectedNavigationItem = selectedNavigationItem,
                         onQuantityChanged = ::updateCartQuantity,
                         onRegionSelected = ::selectShippingRegion,
@@ -262,6 +272,11 @@ class MainActivity : ComponentActivity() {
                         onRetryOptions = ::loadCheckoutOptions,
                         onCheckout = ::submitCheckout,
                         onRetryPaymentIntent = ::retrySandboxPaymentIntent,
+                        onGovernorateChanged = { checkoutGovernorate = it; clearCheckoutIdempotencyKey() },
+                        onStreetAddressChanged = { checkoutStreetAddress = it; clearCheckoutIdempotencyKey() },
+                        onLandmarkChanged = { checkoutLandmark = it; clearCheckoutIdempotencyKey() },
+                        onLatitudeChanged = { checkoutLatitude = it; clearCheckoutIdempotencyKey() },
+                        onLongitudeChanged = { checkoutLongitude = it; clearCheckoutIdempotencyKey() },
                         onSignIn = { selectNavigationItem("حسابي") },
                         onNavigationItemSelected = ::selectNavigationItem,
                     )
@@ -323,6 +338,11 @@ class MainActivity : ComponentActivity() {
         outState.putString(STATE_CHECKOUT_TERMS_SHA256, checkoutKeyTermsSha256)
         outState.putString(STATE_SHIPPING_REGION_ID, selectedShippingRegionId)
         outState.putString(STATE_PAYMENT_METHOD, selectedPaymentMethod.apiValue)
+        outState.putString(STATE_CHECKOUT_GOVERNORATE, checkoutGovernorate)
+        outState.putString(STATE_CHECKOUT_STREET_ADDRESS, checkoutStreetAddress)
+        outState.putString(STATE_CHECKOUT_LANDMARK, checkoutLandmark)
+        outState.putString(STATE_CHECKOUT_LATITUDE, checkoutLatitude)
+        outState.putString(STATE_CHECKOUT_LONGITUDE, checkoutLongitude)
         super.onSaveInstanceState(outState)
     }
 
@@ -722,6 +742,9 @@ class MainActivity : ComponentActivity() {
     private fun selectShippingRegion(regionId: String) {
         if (selectedShippingRegionId != regionId) {
             selectedShippingRegionId = regionId
+            shippingRegions.firstOrNull { it.id == regionId }?.name?.let {
+                checkoutGovernorate = it
+            }
             clearCheckoutIdempotencyKey()
             checkoutError = null
         }
@@ -790,7 +813,25 @@ class MainActivity : ComponentActivity() {
         }
         val terms = checkoutTerms ?: return
         val regionId = selectedShippingRegionId ?: return
-        if (cartLines.isEmpty() || !checkoutTermsAccepted || checkoutSubmitting) return
+        val governorate = checkoutGovernorate.trim()
+        val streetAddress = checkoutStreetAddress.trim()
+        val landmark = checkoutLandmark.trim().ifBlank { null }
+        val latitude = checkoutLatitude.trim().toDoubleOrNull()
+        val longitude = checkoutLongitude.trim().toDoubleOrNull()
+        if (
+            cartLines.isEmpty() ||
+            !checkoutTermsAccepted ||
+            checkoutSubmitting ||
+            governorate.isEmpty() ||
+            streetAddress.length < 5 ||
+            (checkoutLatitude.isNotBlank() && latitude == null) ||
+            (checkoutLongitude.isNotBlank() && longitude == null) ||
+            latitude?.let { it !in -90.0..90.0 } == true ||
+            longitude?.let { it !in -180.0..180.0 } == true
+        ) {
+            checkoutError = "أدخل محافظة وعنواناً تفصيلياً وإحداثيات صالحة إن تم إدخالها."
+            return
+        }
 
         val idempotencyKey = checkoutIdempotencyKey ?: UUID.randomUUID().toString().also {
             checkoutIdempotencyKey = it
@@ -809,6 +850,11 @@ class MainActivity : ComponentActivity() {
                     paymentMethod = submittedPaymentMethod,
                     shippingRegionId = regionId,
                     terms = terms,
+                    governorate = governorate,
+                    streetAddress = streetAddress,
+                    landmark = landmark,
+                    latitude = latitude,
+                    longitude = longitude,
                 )
                 checkoutReceipt = receipt
                 cartLines = emptyList()
@@ -921,6 +967,12 @@ class MainActivity : ComponentActivity() {
         }
 
         selectedShippingRegionId = savedInstanceState.getString(STATE_SHIPPING_REGION_ID)
+        checkoutGovernorate = savedInstanceState.getString(STATE_CHECKOUT_GOVERNORATE).orEmpty()
+        checkoutStreetAddress =
+            savedInstanceState.getString(STATE_CHECKOUT_STREET_ADDRESS).orEmpty()
+        checkoutLandmark = savedInstanceState.getString(STATE_CHECKOUT_LANDMARK).orEmpty()
+        checkoutLatitude = savedInstanceState.getString(STATE_CHECKOUT_LATITUDE).orEmpty()
+        checkoutLongitude = savedInstanceState.getString(STATE_CHECKOUT_LONGITUDE).orEmpty()
         savedInstanceState.getString(STATE_PAYMENT_METHOD)?.let { savedMethod ->
             selectedPaymentMethod = PrepaidPaymentMethod.values()
                 .firstOrNull { it.apiValue == savedMethod }
@@ -972,6 +1024,11 @@ class MainActivity : ComponentActivity() {
         const val STATE_CHECKOUT_TERMS_SHA256 = "checkout.terms_sha256"
         const val STATE_SHIPPING_REGION_ID = "checkout.shipping_region_id"
         const val STATE_PAYMENT_METHOD = "checkout.payment_method"
+        const val STATE_CHECKOUT_GOVERNORATE = "checkout.governorate"
+        const val STATE_CHECKOUT_STREET_ADDRESS = "checkout.street_address"
+        const val STATE_CHECKOUT_LANDMARK = "checkout.landmark"
+        const val STATE_CHECKOUT_LATITUDE = "checkout.latitude"
+        const val STATE_CHECKOUT_LONGITUDE = "checkout.longitude"
     }
 }
 

@@ -26,6 +26,11 @@ class CheckoutRepositoryTest {
             paymentMethod = PrepaidPaymentMethod.CARD,
             shippingRegionId = "55000000-0000-0000-0000-000000000001",
             terms = CheckoutTerms("prepaid-order-v1", "الشروط", "a".repeat(64)),
+            governorate = "القاهرة",
+            streetAddress = "شارع التحرير، مبنى 10",
+            landmark = "أمام السوق",
+            latitude = 30.0444,
+            longitude = 31.2357,
         )
 
         assertEquals(
@@ -36,6 +41,11 @@ class CheckoutRepositoryTest {
                 "p_shipping_region_id",
                 "p_terms_version",
                 "p_terms_sha256",
+                "p_governorate",
+                "p_street_address",
+                "p_landmark",
+                "p_latitude",
+                "p_longitude",
             ),
             parameters.keys,
         )

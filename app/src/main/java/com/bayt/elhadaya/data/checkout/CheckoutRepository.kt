@@ -16,7 +16,7 @@ class CheckoutRepository(private val client: SupabaseClient) {
 
     suspend fun loadShippingRegions(): List<ShippingRegion> =
         client.from("shipping_regions")
-            .select(Columns.list("region_id", "name", "shipping_minor")) {
+            .select(Columns.list("region_id", "name", "provider", "provider_region_code", "shipping_minor")) {
                 filter { eq("is_active", true) }
                 order("name", Order.ASCENDING)
             }
@@ -28,6 +28,11 @@ class CheckoutRepository(private val client: SupabaseClient) {
         paymentMethod: PrepaidPaymentMethod,
         shippingRegionId: String,
         terms: CheckoutTerms,
+        governorate: String,
+        streetAddress: String,
+        landmark: String?,
+        latitude: Double?,
+        longitude: Double?,
     ): CheckoutReceipt {
         return client.postgrest.rpc(
             function = "create_checkout_order",
@@ -37,6 +42,11 @@ class CheckoutRepository(private val client: SupabaseClient) {
                 paymentMethod = paymentMethod,
                 shippingRegionId = shippingRegionId,
                 terms = terms,
+                governorate = governorate,
+                streetAddress = streetAddress,
+                landmark = landmark,
+                latitude = latitude,
+                longitude = longitude,
             ),
         ).decodeAs()
     }
@@ -68,6 +78,11 @@ internal fun createCheckoutOrderParameters(
     paymentMethod: PrepaidPaymentMethod,
     shippingRegionId: String,
     terms: CheckoutTerms,
+    governorate: String,
+    streetAddress: String,
+    landmark: String?,
+    latitude: Double?,
+    longitude: Double?,
 ) = Json.encodeToJsonElement(
     CreateCheckoutOrderRequest.serializer(),
     CreateCheckoutOrderRequest(
@@ -79,6 +94,11 @@ internal fun createCheckoutOrderParameters(
         shippingRegionId = shippingRegionId,
         termsVersion = terms.version,
         termsSha256 = terms.sha256,
+        governorate = governorate,
+        streetAddress = streetAddress,
+        landmark = landmark,
+        latitude = latitude,
+        longitude = longitude,
     ),
 ).jsonObject
 
@@ -108,6 +128,7 @@ data class ShippingRegion(
     @SerialName("region_id")
     val id: String,
     val name: String,
+    val provider: String = "",
     @SerialName("shipping_minor")
     val shippingMinor: Long,
 )
@@ -157,6 +178,11 @@ private data class CreateCheckoutOrderRequest(
     @SerialName("p_shipping_region_id") val shippingRegionId: String,
     @SerialName("p_terms_version") val termsVersion: String,
     @SerialName("p_terms_sha256") val termsSha256: String,
+    @SerialName("p_governorate") val governorate: String,
+    @SerialName("p_street_address") val streetAddress: String,
+    @SerialName("p_landmark") val landmark: String?,
+    @SerialName("p_latitude") val latitude: Double?,
+    @SerialName("p_longitude") val longitude: Double?,
 )
 
 @Serializable

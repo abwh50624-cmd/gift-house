@@ -9,17 +9,17 @@ SELECT plan(15);
 SELECT ok(
     has_function_privilege(
         'authenticated',
-        'public.create_checkout_order(jsonb,text,text,uuid,text,text)',
+        'public.create_checkout_order(jsonb,text,text,uuid,text,text,text,text,text,double precision,double precision)',
         'EXECUTE'
     )
     AND NOT has_function_privilege(
         'anon',
-        'public.create_checkout_order(jsonb,text,text,uuid,text,text)',
+        'public.create_checkout_order(jsonb,text,text,uuid,text,text,text,text,text,double precision,double precision)',
         'EXECUTE'
     )
     AND NOT has_function_privilege(
         'service_role',
-        'public.create_checkout_order(jsonb,text,text,uuid,text,text)',
+        'public.create_checkout_order(jsonb,text,text,uuid,text,text,text,text,text,double precision,double precision)',
         'EXECUTE'
     ),
     'checkout RPC is callable only by authenticated customers'
@@ -72,7 +72,12 @@ SELECT throws_ok(
         'CARD',
         gen_random_uuid(),
         'prepaid-order-v1',
-        public.get_checkout_terms() ->> 'sha256'
+        public.get_checkout_terms() ->> 'sha256',
+        'القاهرة',
+        'شارع التفصيل رقم 10',
+        NULL,
+        30.0444,
+        31.2357
     )
     $$,
     '28000',
@@ -153,7 +158,17 @@ SELECT throws_ok(
         'COD',
         '55000000-0000-0000-0000-000000000001',
         'prepaid-order-v1',
-        public.get_checkout_terms() ->> 'sha256'
+        public.get_checkout_terms() ->> 'sha256',
+        'القاهرة',
+        'شارع التفصيل رقم 10',
+        NULL,
+        30.0444,
+        31.2357,
+        'القاهرة',
+        'شارع التفصيل رقم 10',
+        NULL,
+        30.0444,
+        31.2357
     )
     $$,
     '22023',
@@ -169,7 +184,12 @@ SELECT throws_ok(
         'CARD',
         '55000000-0000-0000-0000-000000000001',
         'outdated-terms',
-        public.get_checkout_terms() ->> 'sha256'
+        public.get_checkout_terms() ->> 'sha256',
+        'القاهرة',
+        'شارع التفصيل رقم 10',
+        NULL,
+        30.0444,
+        31.2357
     )
     $$,
     '22023',
@@ -184,7 +204,12 @@ SELECT is(
         'CARD',
         '55000000-0000-0000-0000-000000000001',
         public.get_checkout_terms() ->> 'version',
-        public.get_checkout_terms() ->> 'sha256'
+        public.get_checkout_terms() ->> 'sha256',
+        'القاهرة',
+        'شارع التفصيل رقم 10',
+        NULL,
+        30.0444,
+        31.2357
     ) ->> 'total_minor',
     '28000',
     'order total is recalculated from database price and shipping data'
@@ -197,7 +222,12 @@ SELECT is(
         'CARD',
         '55000000-0000-0000-0000-000000000001',
         public.get_checkout_terms() ->> 'version',
-        public.get_checkout_terms() ->> 'sha256'
+        public.get_checkout_terms() ->> 'sha256',
+        'القاهرة',
+        'شارع التفصيل رقم 10',
+        NULL,
+        30.0444,
+        31.2357
     ) ->> 'order_id',
     (
         SELECT order_id::text
@@ -214,7 +244,12 @@ SELECT throws_ok(
         'CARD',
         '55000000-0000-0000-0000-000000000001',
         public.get_checkout_terms() ->> 'version',
-        public.get_checkout_terms() ->> 'sha256'
+        public.get_checkout_terms() ->> 'sha256',
+        'القاهرة',
+        'شارع التفصيل رقم 10',
+        NULL,
+        30.0444,
+        31.2357
     )
     $$,
     '23505',
@@ -230,7 +265,12 @@ SELECT throws_ok(
         'CARD',
         '55000000-0000-0000-0000-000000000001',
         public.get_checkout_terms() ->> 'version',
-        public.get_checkout_terms() ->> 'sha256'
+        public.get_checkout_terms() ->> 'sha256',
+        'القاهرة',
+        'شارع التفصيل رقم 10',
+        NULL,
+        30.0444,
+        31.2357
     )
     $$,
     '23514',

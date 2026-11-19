@@ -19,6 +19,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,6 +56,11 @@ fun CartScreen(
     checkoutError: String?,
     receipt: CheckoutReceipt?,
     sandboxPaymentIntent: SandboxPaymentIntent?,
+    governorate: String,
+    streetAddress: String,
+    landmark: String,
+    latitude: String,
+    longitude: String,
     selectedNavigationItem: String,
     onQuantityChanged: (String, Int) -> Unit,
     onRegionSelected: (String) -> Unit,
@@ -63,6 +69,11 @@ fun CartScreen(
     onRetryOptions: () -> Unit,
     onCheckout: () -> Unit,
     onRetryPaymentIntent: () -> Unit,
+    onGovernorateChanged: (String) -> Unit,
+    onStreetAddressChanged: (String) -> Unit,
+    onLandmarkChanged: (String) -> Unit,
+    onLatitudeChanged: (String) -> Unit,
+    onLongitudeChanged: (String) -> Unit,
     onSignIn: () -> Unit,
     onNavigationItemSelected: (String) -> Unit,
 ) {
@@ -74,6 +85,10 @@ fun CartScreen(
     val total = subtotal + BigDecimal.valueOf(selectedRegion?.shippingMinor ?: 0L)
     val enabled = items.isNotEmpty() &&
         selectedRegion != null &&
+        governorate.isNotBlank() &&
+        streetAddress.trim().length >= 5 &&
+        (latitude.isBlank() || latitude.toDoubleOrNull()?.let { it in -90.0..90.0 } == true) &&
+        (longitude.isBlank() || longitude.toDoubleOrNull()?.let { it in -180.0..180.0 } == true) &&
         terms != null &&
         termsAccepted &&
         isAuthenticated &&
@@ -199,12 +214,58 @@ fun CartScreen(
                         Text(
                             stringResource(
                                 R.string.checkout_region_option,
-                                region.name,
+                                region.regionName(),
                                 formatPrice(region.shippingMinor),
                             ),
                         )
                     }
                 }
+            }
+
+            Text(
+                "عنوان التوصيل",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            OutlinedTextField(
+                value = governorate,
+                onValueChange = onGovernorateChanged,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("المحافظة") },
+                singleLine = true,
+                enabled = !isSubmitting,
+            )
+            OutlinedTextField(
+                value = streetAddress,
+                onValueChange = onStreetAddressChanged,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("العنوان التفصيلي / الشارع") },
+                enabled = !isSubmitting,
+            )
+            OutlinedTextField(
+                value = landmark,
+                onValueChange = onLandmarkChanged,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("علامة مميزة (اختياري)") },
+                enabled = !isSubmitting,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedTextField(
+                    value = latitude,
+                    onValueChange = onLatitudeChanged,
+                    modifier = Modifier.weight(1f),
+                    label = { Text("خط العرض") },
+                    enabled = !isSubmitting,
+                )
+                OutlinedTextField(
+                    value = longitude,
+                    onValueChange = onLongitudeChanged,
+                    modifier = Modifier.weight(1f),
+                    label = { Text("خط الطول") },
+                    enabled = !isSubmitting,
+                )
             }
 
             Text(stringResource(R.string.checkout_payment_method), style = MaterialTheme.typography.titleMedium)
@@ -281,3 +342,6 @@ private fun formatPrice(amountMinor: BigDecimal): String {
     }
     return formatter.format(amountMinor.movePointLeft(2).setScale(2))
 }
+
+private fun ShippingRegion.regionName(): String =
+    "${name} - ${if (provider == "BOSTA") "Bosta" else "البريد المصري"}"

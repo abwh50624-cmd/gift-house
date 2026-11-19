@@ -829,6 +829,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun backendErrorMessage(error: Throwable): String {
+        val raw = error.localizedMessage?.trim().orEmpty().ifEmpty { error.message?.trim().orEmpty() }
+        return raw.ifEmpty { "حدث خطأ غير متوقع أثناء الاتصال بالخادم." }
+    }
+
     private fun sendChatImage(uri: Uri) {
         chatMessages = chatMessages + ChatMessage(
             id = UUID.randomUUID().toString(),

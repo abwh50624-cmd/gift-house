@@ -18,7 +18,7 @@ val supabasePublishableKey = providers.gradleProperty("supabasePublishableKey")
     .orElse(providers.environmentVariable("SUPABASE_PUBLISHABLE_KEY"))
     .getOrElse(productionSupabasePublishableKey)
 val r2PublicBaseUrl = providers.gradleProperty("r2PublicBaseUrl")
-    .orElse(providers.environmentVariable("R2_PUBLIC_BASE_URL"))
+    .orElse(providers.environmentVariable("R2_PUBLIC_BASE_URL").orElse("https://wkhbxljqaymprplpadve.supabase.co/storage/v1/object/public/gift-house-media"))
     .getOrElse("")
 
 android {

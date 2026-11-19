@@ -63,7 +63,6 @@ fun AuthScreen(
     var password by remember { mutableStateOf("") }
     var verificationCode by remember { mutableStateOf("") }
     var createAccount by remember { mutableStateOf(false) }
-    var createAccount by remember { mutableStateOf(false) }
     var termsAccepted by remember { mutableStateOf(false) }
 
 

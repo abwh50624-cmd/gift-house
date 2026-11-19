@@ -143,3 +143,118 @@ test("database failures return retryable errors without leaking update content",
     error: "supplier_update_processing_unavailable",
   });
 });
+
+test("supplier photos are transformed to WebP before being stored and recorded", async () => {
+  const imageBytes = new Uint8Array([
+    0x52, 0x49, 0x46, 0x46, 0x04, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50,
+  ]);
+  const stored: {
+    key: string;
+    value: ArrayBuffer | Uint8Array;
+    options?: { httpMetadata?: { contentType?: string } };
+  }[] = [];
+  const calls: { url: string; init?: RequestInit }[] = [];
+  const photoUpdate = {
+    update_id: 987654321,
+    message: {
+      message_id: 123,
+      chat: { id: -10012345 },
+      from: { id: 777 },
+      caption: "/available ITEM-7",
+      photo: [
+        { file_id: "photo-file-id", file_unique_id: "photo-unique-id", width: 640, height: 480 },
+      ],
+    },
+  };
+  const response = await handleSupplierTelegramWebhook(
+    request(photoUpdate),
+    {
+      ...environment,
+      TELEGRAM_BOT_TOKEN: "test-token",
+      R2_MEDIA_BUCKET: {
+        put: async (key, value, options) => {
+          stored.push({ key, value, options });
+        },
+      },
+    },
+    async (input, init) => {
+      calls.push({ url: input.toString(), init });
+      if (calls.length === 1) {
+        return Response.json({ ok: true, result: { file_path: "photos/original.jpg" } });
+      }
+      if (calls.length === 2) {
+        return new Response(imageBytes, {
+          headers: { "content-type": "image/webp" },
+        });
+      }
+      return Response.json({ status: "RECORDED" });
+    },
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(calls[1]?.url, "https://api.telegram.org/file/bottest-token/photos/original.jpg");
+  assert.deepEqual(
+    (calls[1]?.init as RequestInit & { cf: { image: { format: string } } }).cf,
+    { image: { format: "webp" } },
+  );
+  assert.equal(stored.length, 1);
+  assert.equal(
+    stored[0]?.key,
+    "supplier-photos/-10012345/777/987654321-123.webp",
+  );
+  assert.deepEqual(stored[0]?.value, imageBytes);
+  assert.equal(stored[0]?.options?.httpMetadata?.contentType, "image/webp");
+  assert.deepEqual(JSON.parse(String(calls[2]?.init?.body)), {
+    p_update_id: 987654321,
+    p_chat_id: -10012345,
+    p_user_id: 777,
+    p_message_id: 123,
+    p_supplier_item_code: "ITEM-7",
+    p_image_object_key: "supplier-photos/-10012345/777/987654321-123.webp",
+  });
+  assert.deepEqual(await response.json(), {
+    ok: true,
+    status: "RECORDED",
+    object_key: "supplier-photos/-10012345/777/987654321-123.webp",
+  });
+});
+
+test("supplier photo responses that are not WebP are not stored", async () => {
+  let stored = false;
+  let calls = 0;
+  const photoUpdate = {
+    update_id: 987654321,
+    message: {
+      message_id: 123,
+      chat: { id: -10012345 },
+      from: { id: 777 },
+      photo: [
+        { file_id: "photo-file-id", file_unique_id: "photo-unique-id", width: 640, height: 480 },
+      ],
+    },
+  };
+  const response = await handleSupplierTelegramWebhook(
+    request(photoUpdate),
+    {
+      ...environment,
+      TELEGRAM_BOT_TOKEN: "test-token",
+      R2_MEDIA_BUCKET: {
+        put: async () => {
+          stored = true;
+        },
+      },
+    },
+    async () => {
+      calls += 1;
+      return calls === 1
+        ? Response.json({ ok: true, result: { file_path: "photos/original.jpg" } })
+        : new Response(new Uint8Array([1, 2, 3]), {
+          headers: { "content-type": "image/jpeg" },
+        });
+    },
+  );
+
+  assert.equal(response.status, 503);
+  assert.equal(stored, false);
+  assert.equal(calls, 2);
+});

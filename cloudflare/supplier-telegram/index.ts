@@ -15,6 +15,10 @@ interface R2Bucket {
   }): Promise<unknown>;
 }
 
+type CloudflareImageRequestInit = RequestInit & {
+  cf: { image: { format: "webp" } };
+};
+
 interface TelegramMessage {
   message_id: number;
   chat: { id: number };
@@ -47,6 +51,20 @@ function constantTimeEquals(actual: string, expected: string): boolean {
     difference |= (actual.charCodeAt(index) || 0) ^ (expected.charCodeAt(index) || 0);
   }
   return difference === 0;
+}
+
+function isWebpImage(bytes: Uint8Array): boolean {
+  return (
+    bytes.byteLength >= 12 &&
+    bytes[0] === 0x52 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x46 &&
+    bytes[8] === 0x57 &&
+    bytes[9] === 0x45 &&
+    bytes[10] === 0x42 &&
+    bytes[11] === 0x50
+  );
 }
 
 function isAllowedBackendUrl(value: string): boolean {
@@ -111,17 +129,30 @@ async function syncSupplierPhoto(
 
   let imageResponse: Response;
   try {
+    const imageRequestOptions: CloudflareImageRequestInit = {
+      signal: AbortSignal.timeout(20_000),
+      cf: { image: { format: "webp" } },
+    };
     imageResponse = await fetcher(
       `https://api.telegram.org/file/bot${token}/${fileResult.result.file_path}`,
-      { signal: AbortSignal.timeout(20_000) },
+      imageRequestOptions,
     );
   } catch {
     return jsonResponse(503, { error: "telegram_media_sync_unavailable" });
   }
   if (!imageResponse.ok) return jsonResponse(503, { error: "telegram_media_sync_unavailable" });
+  if (
+    imageResponse.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() !==
+      "image/webp"
+  ) {
+    return jsonResponse(503, { error: "telegram_media_sync_unavailable" });
+  }
   const bytes = new Uint8Array(await imageResponse.arrayBuffer());
   if (bytes.byteLength === 0 || bytes.byteLength > 10 * 1024 * 1024) {
     return jsonResponse(413, { error: "media_too_large" });
+  }
+  if (!isWebpImage(bytes)) {
+    return jsonResponse(503, { error: "telegram_media_sync_unavailable" });
   }
   const objectKey =
     `supplier-photos/${message.chat.id}/${message.from?.id}/${updateId}-${message.message_id}.webp`;
